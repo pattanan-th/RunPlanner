@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#10b981">
+    <title>RunPlanner - วางแผนเส้นทางวิ่ง</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/svg+xml" href="icon.svg">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="RunPlanner">
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+
+    <!-- Tailwind CSS via CDN (for prototyping) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        html, body, #root {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Sarabun", Roboto, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #map {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+        }
+        .leaflet-container {
+            background: #f1f5f9;
+        }
+        .map-frame {
+            background: white;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15), inset 0 0 0 1px rgba(0,0,0,0.05);
+        }
+        .app-bg {
+            background: linear-gradient(135deg, #ecfdf5 0%, #e0f2fe 100%);
+        }
+        .side-rail-btn {
+            background: white;
+            border: 1px solid rgba(0,0,0,0.08);
+            border-radius: 999px;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+            position: relative;
+        }
+        .side-rail-btn:active {
+            background: #f3f4f6;
+        }
+        /* Numbered waypoint marker */
+        .run-marker {
+            background: #10b981;
+            border: 3px solid white;
+            border-radius: 50%;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+            width: 26px;
+            height: 26px;
+            color: white;
+            font-size: 12px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        .run-marker-start {
+            background: #3b82f6;
+            width: 30px;
+            height: 30px;
+            font-size: 13px;
+            border-width: 3px;
+        }
+        .run-marker-current {
+            background: #ef4444;
+            width: 16px;
+            height: 16px;
+            animation: pulse 1.5s infinite;
+        }
+        /* Google-Maps-style user blue dot */
+        .user-loc-ring {
+            width: 22px;
+            height: 22px;
+            background: rgba(66, 133, 244, 0.22);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: locPulse 2.5s ease-out infinite;
+        }
+        .user-loc-dot {
+            width: 12px;
+            height: 12px;
+            background: #4285f4;
+            border: 2px solid white;
+            border-radius: 50%;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+        }
+        @keyframes locPulse {
+            0%   { box-shadow: 0 0 0 0 rgba(66, 133, 244, 0.5); }
+            70%  { box-shadow: 0 0 0 16px rgba(66, 133, 244, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(66, 133, 244, 0); }
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .panel {
+            background: rgba(255, 255, 255, 0.97);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+        .btn-primary:active { transform: scale(0.97); }
+        .btn-primary:disabled { opacity: 0.5; }
+
+        .elevation-svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Hide leaflet attribution on small screens to save space */
+        @media (max-width: 480px) {
+            .leaflet-control-attribution {
+                font-size: 9px;
+            }
+        }
+
+        /* Safe area insets for iOS */
+        .safe-top { padding-top: env(safe-area-inset-top); }
+        .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- React 18 + Babel for in-browser JSX (prototype only) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel" src="app.js?v=21"></script>
+
+    <script>
+        // Auto-unregister old service workers and clear caches (dev mode safety)
+        // This prevents stale cached app.js from breaking the page.
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(regs => {
+                regs.forEach(r => r.unregister());
+            });
+        }
+        if ('caches' in window) {
+            caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+        }
+    </script>
+</body>
+</html>

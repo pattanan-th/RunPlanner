@@ -1,0 +1,13 @@
+# backups
+*.bak
+*.bak-*
+app.js.bak*
+
+# os / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+
+# logs
+*.log
