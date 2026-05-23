@@ -384,10 +384,6 @@ async function fetchElevation(coords) {
     } catch (e) { return []; }
 }
 
-const STORAGE_KEY = "runplanner.saved_routes.v1";
-function loadRoutes() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; } }
-function saveRoutes(r) { localStorage.setItem(STORAGE_KEY, JSON.stringify(r)); }
-
 function ElevationChart({ elevations, totalDistanceM }) {
     if (!elevations || elevations.length < 2) return <div className="text-xs text-gray-400 text-center py-6">{tr("ยังไม่มีข้อมูลความสูง", "No elevation data yet")}</div>;
     const min = Math.min(...elevations), max = Math.max(...elevations);
@@ -509,11 +505,6 @@ function App() {
 
     const [elevations, setElevations] = useState([]);
     const [loadingElev, setLoadingElev] = useState(false);
-
-    const [savedRoutes, setSavedRoutes] = useState(loadRoutes());
-    const [savedOpen, setSavedOpen] = useState(false);
-    const [renamingId, setRenamingId] = useState(null);
-    const [renamingValue, setRenamingValue] = useState("");
 
     const [paceMin, setPaceMin] = useState(6);
     const [paceSec, setPaceSec] = useState(0);
@@ -725,7 +716,7 @@ function App() {
         if (!map) return;
         const t = setTimeout(() => map.invalidateSize(), 250);
         return () => clearTimeout(t);
-    }, [uiVisible, bottomCollapsed, editorOpen, savedOpen, paceOpen]);
+    }, [uiVisible, bottomCollapsed, editorOpen, paceOpen]);
 
     const plannedDistance = useMemo(() => totalDistance(routedCoords), [routedCoords]);
     const gain = useMemo(() => elevationGain(elevations), [elevations]);
@@ -940,52 +931,6 @@ function App() {
     const exportGpx = () => {
         if (routedCoords.length < 2) { showToast(tr("ต้องมีอย่างน้อย 2 จุด", "Need at least 2 points")); return; }
         downloadGpx(routedCoords, defaultRouteName());
-        showToast(tr("ดาวน์โหลด .gpx แล้ว", "Downloaded .gpx"));
-    };
-    const saveCurrentRoute = () => {
-        if (waypoints.length < 2) { showToast(tr("ต้องมีอย่างน้อย 2 จุด", "Need at least 2 points")); return; }
-        const newRoute = {
-            id: Date.now().toString(),
-            name: defaultRouteName(),
-            waypoints, routedCoords,
-            distance: plannedDistance, elevationGain: gain,
-            createdAt: new Date().toISOString(),
-        };
-        const updated = [newRoute, ...savedRoutes];
-        setSavedRoutes(updated);
-        saveRoutes(updated);
-        showToast(tr("บันทึกแล้ว", "Saved"));
-    };
-    const loadSavedRoute = (route) => {
-        setWaypoints(route.waypoints);
-        if (route.routedCoords && route.routedCoords.length > 0) {
-            setRoutedCoords(route.routedCoords);
-            setSnapToRoads(false);
-            drawRouteLine(route.routedCoords);
-        }
-        setSavedOpen(false);
-        const map = mapInstanceRef.current;
-        if (map && route.waypoints.length > 0) {
-            map.fitBounds(route.waypoints.map(w => [w.lat, w.lng]), { padding: [50, 50] });
-        }
-    };
-    const deleteSavedRoute = (id) => {
-        const updated = savedRoutes.filter(r => r.id !== id);
-        setSavedRoutes(updated);
-        saveRoutes(updated);
-        showToast(tr("ลบแล้ว", "Deleted"));
-    };
-    const startRename = (route) => { setRenamingId(route.id); setRenamingValue(route.name); };
-    const commitRename = () => {
-        const updated = savedRoutes.map(r => r.id === renamingId ? { ...r, name: renamingValue.trim() || r.name } : r);
-        setSavedRoutes(updated);
-        saveRoutes(updated);
-        setRenamingId(null);
-        setRenamingValue("");
-    };
-    const exportSavedGpx = (route) => {
-        const coords = route.routedCoords && route.routedCoords.length > 0 ? route.routedCoords : route.waypoints;
-        downloadGpx(coords, route.name);
         showToast(tr("ดาวน์โหลด .gpx แล้ว", "Downloaded .gpx"));
     };
     const centerOnMe = () => {
@@ -1254,15 +1199,6 @@ function App() {
                     <button onClick={centerOnMe} className="side-rail-btn" title={tr("ตำแหน่งฉัน", "My location")}>
                         <span className="text-lg">📍</span>
                     </button>
-                    <button onClick={saveCurrentRoute} disabled={waypoints.length < 2}
-                        className="side-rail-btn" title={tr("บันทึกเส้นทาง", "Save route")}
-                        style={{ opacity: waypoints.length < 2 ? 0.4 : 1 }}>
-                        <span className="text-lg">💾</span>
-                    </button>
-                    <button onClick={() => setSavedOpen(true)} className="side-rail-btn" title={tr("เส้นทางที่บันทึก", "Saved routes")}>
-                        <span className="text-lg">📂</span>
-                        {savedRoutes.length > 0 && <span className="absolute -top-1 -right-1 bg-green-600 text-white text-[10px] rounded-full px-1.5 py-0.5 font-bold">{savedRoutes.length}</span>}
-                    </button>
                     <button onClick={shareRoute} disabled={waypoints.length < 2}
                         className="side-rail-btn" title={tr("แชร์ลิงก์", "Share link")}
                         style={{ opacity: waypoints.length < 2 ? 0.4 : 1 }}>
@@ -1324,62 +1260,6 @@ function App() {
                 </div>
             )}
 
-
-            {savedOpen && (
-                <div onClick={() => setSavedOpen(false)}
-                    className="fixed inset-0 bg-black bg-opacity-40 z-40 flex items-end sm:items-center justify-center p-4">
-                    <div onClick={(e) => e.stopPropagation()}
-                        className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col"
-                        style={{ maxHeight: "80vh" }}>
-                        <div className="flex items-center justify-between p-4 border-b border-gray-100">
-                            <h3 className="font-bold text-gray-800">💾 {tr("เส้นทางที่บันทึก", "Saved routes")} ({savedRoutes.length})</h3>
-                            <button onClick={() => setSavedOpen(false)}
-                                className="w-8 h-8 rounded-full bg-gray-100 active:bg-gray-200 flex items-center justify-center text-gray-600">✕</button>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-3">
-                            {savedRoutes.length === 0 ? (
-                                <div className="text-center text-sm text-gray-500 py-8">{tr("ยังไม่มีเส้นทางที่บันทึกไว้", "No saved routes yet")}</div>
-                            ) : (
-                                <div className="space-y-2">
-                                    {savedRoutes.map(r => (
-                                        <div key={r.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-                                            <div className="flex-1 min-w-0">
-                                                {renamingId === r.id ? (
-                                                    <input autoFocus value={renamingValue}
-                                                        onChange={(e) => setRenamingValue(e.target.value)}
-                                                        onBlur={commitRename}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === "Enter") commitRename();
-                                                            if (e.key === "Escape") { setRenamingId(null); setRenamingValue(""); }
-                                                        }}
-                                                        className="w-full px-2 py-1 border border-green-500 rounded text-sm" />
-                                                ) : (
-                                                    <div className="font-medium text-gray-800 truncate cursor-text"
-                                                        onClick={() => startRename(r)}>
-                                                        🗺️ {r.name}
-                                                    </div>
-                                                )}
-                                                <div className="text-xs text-gray-500">
-                                                    {fmtDistance(r.distance)}
-                                                    {r.elevationGain > 0 && ` · ↑${Math.round(r.elevationGain)}${tr("ม.", "m")}`}
-                                                    {paceSecPerKm > 0 && ` · ⏱ ${fmtTime((r.distance/1000) * paceSecPerKm)}`}
-                                                </div>
-                                            </div>
-                                            <button onClick={() => loadSavedRoute(r)}
-                                                className="px-2 py-1 bg-green-600 text-white rounded text-xs active:bg-green-700">{tr("เปิด", "Open")}</button>
-                                            <button onClick={() => exportSavedGpx(r)}
-                                                className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs active:bg-blue-100">📥</button>
-                                            <button onClick={() => deleteSavedRoute(r.id)}
-                                                className="px-2 py-1 text-red-600 active:bg-red-50 rounded">🗑️</button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            <div className="text-xs text-gray-400 text-center mt-3">💡 {tr("แตะที่ชื่อเพื่อเปลี่ยนชื่อ · 📥 = ดาวน์โหลด GPX", "Tap a name to rename · 📥 = download GPX")}</div>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* Elevation profile floating popup — draggable (header) + resizable (corner) */}
             {elevPopupOpen && elevations.length >= 2 && (
