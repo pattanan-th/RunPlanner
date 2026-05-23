@@ -146,3 +146,25 @@ elevator.getElevationAlongPath({ path: coords, samples: 100 }, ...);
 4. ปรับ service worker ให้ cache map tiles ในพื้นที่ที่กำหนด (offline maps)
 5. เพิ่มฟีเจอร์ social — follow เพื่อน, leaderboard, share to Strava
 6. Export เป็น .gpx / .tcx สำหรับนำไปใช้กับ Garmin/Strava
+
+## วิธีเทส / How to test
+
+### 📱 บนมือถือ (แนะนำ — HTTPS, GPS ใช้ได้)
+เปิด URL นี้บนมือถือเลย ไม่ต้องเปิดอะไรในคอม:
+
+**https://pattanan-th.github.io/RunPlanner/**
+
+อัปเดตอัตโนมัติทุกครั้งที่ `git push` (รอ ~1 นาทีให้ GitHub Pages build)
+
+### 💻 บนคอม / LAN dev server
+ดับเบิลคลิก **`dev-server.bat`** ในโฟลเดอร์โปรเจกต์ → จะโชว์ URL ในหน้าต่าง cmd
+เปิดบนมือถือ (Wi-Fi เดียวกันกับ PC): `http://<IP-ของ-PC>:8080/`
+
+ข้อจำกัด: HTTP เท่านั้น → **GPS / "ตำแหน่งฉัน" ใช้ไม่ได้บนมือถือ** (ใช้บน desktop ได้)
+ปิด: ปิดหน้าต่าง cmd
+
+### ⚙️ Google Maps API key
+คีย์อยู่ใน `index.html` (จำกัด referrer ใน Google Cloud Console แล้ว)
+- `https://pattanan-th.github.io/*` — production
+- `http://localhost:*/*` — dev
+- `http://192.168.1.187:8080/*` — LAN (เปลี่ยน IP ถ้าคอมย้ายเครือข่าย)
