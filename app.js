@@ -549,7 +549,7 @@ function App() {
                     setUserLocation(loc);
                     map.setView([loc.lat, loc.lng], 15);
                 },
-                () => {}, { timeout: 5000, enableHighAccuracy: false }
+                () => {}, { timeout: 15000, enableHighAccuracy: false }
             );
             passiveWatchIdRef.current = navigator.geolocation.watchPosition(
                 (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy }),
@@ -989,15 +989,32 @@ function App() {
         showToast(tr("ดาวน์โหลด .gpx แล้ว", "Downloaded .gpx"));
     };
     const centerOnMe = () => {
-        if (!navigator.geolocation) return;
+        if (!navigator.geolocation) {
+            showToast(tr("เบราว์เซอร์นี้ไม่รองรับ GPS", "Browser doesn't support GPS"));
+            return;
+        }
+        if (!window.isSecureContext) {
+            showToast(tr("ต้องใช้ HTTPS — GPS ใช้งานไม่ได้ผ่าน http", "HTTPS required — GPS unavailable over http"));
+            return;
+        }
+        showToast(tr("กำลังหาตำแหน่ง...", "Finding location..."));
         navigator.geolocation.getCurrentPosition(
             (pos) => {
                 const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy };
                 setUserLocation(loc);
                 mapInstanceRef.current && mapInstanceRef.current.setView([loc.lat, loc.lng], 16);
             },
-            (err) => showToast(tr("ไม่สามารถดึงตำแหน่ง", "Unable to get location")),
-            { enableHighAccuracy: true, timeout: 8000 }
+            (err) => {
+                // Surface the specific reason so iOS Safari issues are diagnosable
+                const map = {
+                    1: tr("ปฏิเสธสิทธิ์ — เช็คตั้งค่า iOS: Settings → Privacy → Location Services → Safari → While Using",
+                          "Permission denied — iOS: Settings → Privacy → Location Services → Safari → While Using"),
+                    2: tr("หา GPS ไม่ได้ (ลองออกที่โล่ง / เปิด Wi-Fi)", "Position unavailable (try outdoors / enable Wi-Fi)"),
+                    3: tr("หมดเวลา — ลองอีกครั้ง", "Timed out — try again"),
+                };
+                showToast(map[err.code] || (tr("ผิดพลาด: ", "Error: ") + (err.message || err.code)));
+            },
+            { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
         );
     };
 
