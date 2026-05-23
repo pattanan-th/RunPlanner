@@ -9,6 +9,11 @@ const LANG_KEY = "runplanner.lang";
 let CUR_LANG = (() => { try { return localStorage.getItem(LANG_KEY) === "en" ? "en" : "th"; } catch { return "th"; } })();
 const tr = (th, en) => (CUR_LANG === "en" ? en : th);
 
+/* ============ Routing profile ============ */
+// Routing profile mapped to a Google travel mode: "foot" → WALKING (footpaths / small alleys /
+// sois); "driving" → DRIVING (vehicular roads only). Kept in sync with React state in App's render.
+let ROUTE_PROFILE = "foot";
+
 /* ============ Utilities ============ */
 const R_EARTH = 6371000;
 const toRad = (d) => (d * Math.PI) / 180;
@@ -36,38 +41,29 @@ function destinationPoint(start, distMeters, bearingRad) {
 function generateLoopWaypoints(start, targetDistMeters, numPoints, seed) {
     const detourFactor = 1.3;
     const radius = (targetDistMeters / detourFactor) / (2 * Math.PI);
-    const initialBearing = seed * 2 * Math.PI;
+    // Put the start ON the circle: offset the center by `radius` in a random direction so the loop
+    // is a clean circle passing through the start — not spokes radiating from a central start point.
+    const centerBearing = seed * 2 * Math.PI;
+    const center = destinationPoint(start, radius, centerBearing);
+    const startAngle = centerBearing + Math.PI;            // start's bearing as seen from the center
+    const dir = ((seed * 7919) % 1) < 0.5 ? 1 : -1;        // random travel direction around the circle
     const points = [start];
-    for (let i = 0; i < numPoints; i++) {
-        const bearing = initialBearing + ((i + 1) / (numPoints + 1)) * 2 * Math.PI;
-        const r = radius * (0.85 + ((seed * 7919 * (i + 1)) % 1) * 0.3);
-        points.push(destinationPoint(start, r, bearing));
+    for (let i = 1; i <= numPoints; i++) {
+        const ang = startAngle + dir * (i / (numPoints + 1)) * 2 * Math.PI;
+        const r = radius * (0.92 + ((seed * 7919 * (i + 1)) % 1) * 0.16); // small ±8% wobble, stays circular
+        points.push(destinationPoint(center, r, ang));
     }
     points.push(start);
     return points;
 }
 
-// One-way ("ไปไม่กลับ"): pick a random compass direction from the start and head outward,
-// ending ~targetDist away. Each segment is anchored to a FIXED primary bearing (not an
-// accumulating heading) so the path never curls back into a loop. A gentle overall drift +
-// small per-segment wiggle give it a natural, varied shape while always progressing forward.
-function generateOneWayWaypoints(start, targetDistMeters, numPoints, seed) {
-    const detourFactor = 1.3;
-    const segments = numPoints + 1;
-    const stepDist = (targetDistMeters / detourFactor) / segments;
-    const primary = seed * 2 * Math.PI;                 // fixed random direction for the whole path
-    const drift = (seed * 2 - 1) * (Math.PI * 0.16);    // gentle curve across the path, ±~29° total
-    const points = [start];
-    let current = start;
-    for (let i = 0; i < segments; i++) {
-        const t = segments > 1 ? i / (segments - 1) : 0;
-        const wiggle = Math.sin(seed * 1000 + i * 17.31) * (Math.PI * 0.15); // ±~27° local variation
-        const bearing = primary + drift * t + wiggle;   // stays near the primary direction → no loop-back
-        const next = destinationPoint(current, stepDist, bearing);
-        points.push(next);
-        current = next;
-    }
-    return points;
+// One-way ("ไปไม่กลับ"): TWO waypoints only — the start and a single endpoint placed in a
+// random compass direction at the target distance. Google then routes start→end along roads,
+// so the editable route has exactly two points (start + end) with no intermediate waypoints.
+function oneWayEndpoint(start, targetDistMeters, seed) {
+    const detourFactor = 1.3;            // road path is typically ~1.3x the straight-line distance
+    const bearing = seed * 2 * Math.PI;  // random direction
+    return destinationPoint(start, targetDistMeters / detourFactor, bearing);
 }
 function fmtDistance(m) {
     if (m < 1000) return `${Math.round(m)} ${tr("ม.", "m")}`;
@@ -207,44 +203,62 @@ function detectRouteOverlap(coords, closedLoop = true) {
     return false;
 }
 
-/* ============ External APIs ============ */
-// Single multi-waypoint route call — much faster than N sequential segment calls.
-// OSRM auto-snaps each waypoint to the road network and returns the full route.
+/* ============ Routing (Google Maps JS SDK — DirectionsService) ============ */
+// Lazily created singleton. Returns null until the Google Maps SDK has finished loading.
+let _dirService = null;
+function dirService() {
+    if (!_dirService && window.google && google.maps && google.maps.DirectionsService) {
+        _dirService = new google.maps.DirectionsService();
+    }
+    return _dirService;
+}
+// ROUTE_PROFILE "foot" → WALKING (uses footpaths / sois); "driving" → DRIVING (vehicular roads).
+function googleTravelMode() {
+    if (window.google && google.maps) {
+        return ROUTE_PROFILE === "driving" ? google.maps.TravelMode.DRIVING : google.maps.TravelMode.WALKING;
+    }
+    return "WALKING";
+}
+
+// Single multi-waypoint route via DirectionsService. Returns { snappedPoints, allCoords, actual }.
 async function fetchMultiWaypointRoute(waypoints) {
-    const coords = waypoints.map(p => `${p.lng},${p.lat}`).join(";");
-    const url = `https://router.project-osrm.org/route/v1/foot/${coords}?overview=full&geometries=geojson`;
+    const svc = dirService();
+    if (!svc || waypoints.length < 2) return null;
+    const origin = { lat: waypoints[0].lat, lng: waypoints[0].lng };
+    const destination = { lat: waypoints[waypoints.length - 1].lat, lng: waypoints[waypoints.length - 1].lng };
+    const mid = waypoints.slice(1, -1).map(p => ({ location: { lat: p.lat, lng: p.lng }, stopover: true }));
     try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error("OSRM");
-        const data = await res.json();
-        if (!data.routes || !data.routes[0]) return null;
-        const snappedPoints = data.waypoints.map(w => ({ lat: w.location[1], lng: w.location[0] }));
-        const allCoords = data.routes[0].geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
-        return { snappedPoints, allCoords, actual: data.routes[0].distance };
+        const res = await svc.route({
+            origin, destination, waypoints: mid,
+            travelMode: googleTravelMode(),
+            optimizeWaypoints: false,
+        });
+        const route = res.routes && res.routes[0];
+        if (!route) return null;
+        const allCoords = route.overview_path.map(p => ({ lat: p.lat(), lng: p.lng() }));
+        const snappedPoints = [];
+        let actual = 0;
+        route.legs.forEach((leg, i) => {
+            if (i === 0) snappedPoints.push({ lat: leg.start_location.lat(), lng: leg.start_location.lng() });
+            snappedPoints.push({ lat: leg.end_location.lat(), lng: leg.end_location.lng() });
+            actual += leg.distance.value;
+        });
+        return { snappedPoints, allCoords, actual };
     } catch (e) { return null; }
 }
 
-async function fetchRoutedSegment(from, to) {
-    const url = `https://router.project-osrm.org/route/v1/foot/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
-    try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error("OSRM");
-        const data = await res.json();
-        if (!data.routes || !data.routes[0]) throw new Error("no route");
-        return { coords: data.routes[0].geometry.coordinates.map(([lng, lat]) => ({ lat, lng })), distance: data.routes[0].distance };
-    } catch (e) {
-        return { coords: [from, to], distance: haversine(from, to) };
-    }
-}
-
+// Snap a single point to the nearest road by routing it to itself and reading the snapped leg start.
 async function snapToRoad(pt) {
+    const svc = dirService();
+    if (!svc) return pt;
     try {
-        const res = await fetch(`https://router.project-osrm.org/nearest/v1/foot/${pt.lng},${pt.lat}`);
-        const data = await res.json();
-        if (data.waypoints && data.waypoints[0]) {
-            const [lng, lat] = data.waypoints[0].location;
-            return { lat, lng };
-        }
+        const res = await svc.route({
+            origin: { lat: pt.lat, lng: pt.lng },
+            destination: { lat: pt.lat, lng: pt.lng },
+            travelMode: googleTravelMode(),
+        });
+        const leg = res.routes && res.routes[0] && res.routes[0].legs[0];
+        if (leg) return { lat: leg.start_location.lat(), lng: leg.start_location.lng() };
     } catch (e) {}
     return pt;
 }
@@ -260,7 +274,7 @@ async function generateSmoothLoop(start, targetMeters, seed, minPoints, maxPoint
         let scale = 1.0;
         let currentSeed = seed;
         let seedTried = 0;
-        for (let iter = 0; iter < 4; iter++) {
+        for (let iter = 0; iter < 6; iter++) {
             const candidates = generateLoopWaypoints(start, targetMeters * scale, n, currentSeed);
             const result = await fetchMultiWaypointRoute(candidates);
             if (!result) break;
@@ -282,13 +296,6 @@ async function generateSmoothLoop(start, targetMeters, seed, minPoints, maxPoint
                 best = { points: snappedPoints, allCoords, n: snappedPoints.length - 2, actual, smooth: false };
             }
 
-            // Bad direction (e.g. into water): route too short even at high scale → try different seed
-            if (actual < targetMeters * 0.6 && seedTried < 3) {
-                currentSeed = (currentSeed + 0.137) % 1;
-                seedTried++;
-                scale = 1.0;
-                continue;
-            }
             if (overlap && inRange) {
                 if (seedTried >= 2) break;
                 currentSeed = (currentSeed + 0.31415) % 1;
@@ -296,9 +303,17 @@ async function generateSmoothLoop(start, targetMeters, seed, minPoints, maxPoint
                 continue;
             }
             if (actual < targetMeters) {
-                scale = Math.min(scale * (targetMeters + 200) / Math.max(actual, 100), 4.0);
+                // Prefer GROWING the circle to reach the target. Only treat it as a dead direction
+                // (e.g. into water) once we've scaled up a lot but it's still far too short.
+                if (scale >= 5.0 && actual < targetMeters * 0.7 && seedTried < 3) {
+                    currentSeed = (currentSeed + 0.137) % 1;
+                    seedTried++;
+                    scale = 1.0;
+                    continue;
+                }
+                scale = Math.min(scale * (targetMeters + 250) / Math.max(actual, 100), 6.0);
             } else if (actual > upperBound) {
-                scale *= (targetMeters + 200) / actual;
+                scale *= (targetMeters + 250) / actual;
             } else {
                 break;
             }
@@ -307,57 +322,51 @@ async function generateSmoothLoop(start, targetMeters, seed, minPoints, maxPoint
     return best;
 }
 
-// One-way variant: actual ∈ [target, target+500], no self-overlap, no return to start.
+// One-way variant: TWO waypoints (start + end). Pick a random direction, place the endpoint,
+// let Google route start→end along roads. Scale the endpoint distance until actual ∈ [target,
+// target+500]; retry other directions if a bearing is unreachable (too short) or curls back.
+// minPoints/maxPoints are unused here (kept for call-signature compatibility with the loop gen).
 async function generateSmoothOneWay(start, targetMeters, seed, minPoints, maxPoints) {
     const upperBound = targetMeters + 500;
     let best = null;
     let bestPenalty = Infinity;
-    for (let n = minPoints; n <= maxPoints; n++) {
-        let scale = 1.0;
-        let currentSeed = seed;
-        let seedTried = 0;
-        for (let iter = 0; iter < 4; iter++) {
-            const candidates = generateOneWayWaypoints(start, targetMeters * scale, n, currentSeed);
-            const result = await fetchMultiWaypointRoute(candidates);
-            if (!result) break;
-            const { snappedPoints, allCoords, actual } = result;
-            const inRange = actual >= targetMeters && actual <= upperBound;
-            const overlap = detectRouteOverlap(allCoords, false);
-            // One-way must END FAR FROM START — reject paths that curl back near the origin.
-            const endGap = haversine(start, snappedPoints[snappedPoints.length - 1]);
-            const tooClose = endGap < targetMeters * 0.45;
-            if (inRange && !overlap && !tooClose) {
-                return { points: snappedPoints, allCoords, n: snappedPoints.length - 1, actual, smooth: true };
-            }
-            let penalty = 0;
-            if (actual < targetMeters) penalty += (targetMeters - actual);
-            if (actual > upperBound) penalty += (actual - upperBound);
-            if (overlap) penalty += 2000;
-            if (tooClose) penalty += 4000 + (targetMeters * 0.45 - endGap); // strongly disfavor loop-back
-            if (penalty < bestPenalty) {
-                bestPenalty = penalty;
-                best = { points: snappedPoints, allCoords, n: snappedPoints.length - 1, actual, smooth: false };
-            }
-            // Bad direction (too short, or curled back near start) → try a different bearing
-            if ((actual < targetMeters * 0.6 || tooClose) && seedTried < 3) {
-                currentSeed = (currentSeed + 0.137) % 1;
-                seedTried++;
-                scale = 1.0;
-                continue;
-            }
-            if (overlap && inRange) {
-                if (seedTried >= 2) break;
-                currentSeed = (currentSeed + 0.41421) % 1;
-                seedTried++;
-                continue;
-            }
-            if (actual < targetMeters) {
-                scale = Math.min(scale * (targetMeters + 200) / Math.max(actual, 100), 4.0);
-            } else if (actual > upperBound) {
-                scale *= (targetMeters + 200) / actual;
-            } else {
-                break;
-            }
+    let scale = 1.0;
+    let currentSeed = seed;
+    let seedTried = 0;
+    for (let iter = 0; iter < 10; iter++) {
+        const end = oneWayEndpoint(start, targetMeters * scale, currentSeed);
+        const result = await fetchMultiWaypointRoute([start, end]);
+        if (!result) break;
+        const { snappedPoints, allCoords, actual } = result;
+        const inRange = actual >= targetMeters && actual <= upperBound;
+        // One-way must END FAR FROM START — reject directions that curl back near the origin.
+        const endGap = haversine(start, snappedPoints[snappedPoints.length - 1]);
+        const tooClose = endGap < targetMeters * 0.45;
+        if (inRange && !tooClose) {
+            return { points: snappedPoints, allCoords, n: snappedPoints.length, actual, smooth: true };
+        }
+        let penalty = 0;
+        if (actual < targetMeters) penalty += (targetMeters - actual);
+        if (actual > upperBound) penalty += (actual - upperBound);
+        if (tooClose) penalty += 4000 + (targetMeters * 0.45 - endGap); // strongly disfavor loop-back
+        if (penalty < bestPenalty) {
+            bestPenalty = penalty;
+            best = { points: snappedPoints, allCoords, n: snappedPoints.length, actual, smooth: false };
+        }
+        // Bad direction (too short even when scaled up, or curled back) → try a different bearing
+        if ((actual < targetMeters * 0.6 || tooClose) && seedTried < 5) {
+            currentSeed = (currentSeed + 0.137) % 1;
+            seedTried++;
+            scale = 1.0;
+            continue;
+        }
+        // Otherwise scale the endpoint distance toward the target road distance
+        if (actual < targetMeters) {
+            scale = Math.min(scale * (targetMeters + 200) / Math.max(actual, 100), 5.0);
+        } else if (actual > upperBound) {
+            scale *= (targetMeters + 200) / actual;
+        } else {
+            break;
         }
     }
     return best;
@@ -452,7 +461,7 @@ function ElevationChart({ elevations, totalDistanceM }) {
 }
 
 const LOOP_PRESETS = [
-    { km: 3 }, { km: 5 }, { km: 7 }, { km: 10 }, { km: 15 }, { km: 21 },
+    { km: 5 }, { km: 10 }, { km: 21 },
 ];
 
 function App() {
@@ -463,6 +472,16 @@ function App() {
         try { localStorage.setItem(LANG_KEY, nl); } catch {}
         return nl;
     });
+
+    const [routeProfile, setRouteProfile] = useState(() => {
+        try { return localStorage.getItem("runplanner.profile") === "driving" ? "driving" : "foot"; } catch { return "foot"; }
+    });
+    ROUTE_PROFILE = routeProfile; // keep module-level routing profile in sync for the API helpers
+    const changeRouteProfile = (p) => {
+        generatedRouteRef.current = null;        // drop cached geometry so routes re-fetch with the new profile
+        try { localStorage.setItem("runplanner.profile", p); } catch {}
+        setRouteProfile(p);
+    };
 
     const mapInstanceRef = useRef(null);
     const markersRef = useRef([]);
@@ -501,6 +520,7 @@ function App() {
     const [paceOpen, setPaceOpen] = useState(false);
 
     const [uiVisible, setUiVisible] = useState(true);
+    const [panelOpen, setPanelOpen] = useState(false); // mobile drawer (left panel) open/closed; desktop always shows inline
     const [bottomCollapsed, setBottomCollapsed] = useState(false);
     const [editorOpen, setEditorOpen] = useState(false);
     const [simplifyEpsilon, setSimplifyEpsilon] = useState(30);
@@ -588,7 +608,7 @@ function App() {
         };
         map.on("click", handler);
         return () => { map.off("click", handler); };
-    }, [loopMode, loopKm, customKm, loopPoints, generatingLoop]);
+    }, [loopMode, loopKm, customKm, loopPoints, generatingLoop, loopType]);
 
     useEffect(() => {
         const map = mapInstanceRef.current;
@@ -642,7 +662,7 @@ function App() {
         }
 
         // If these waypoints just came from the auto-generator, reuse its routed geometry —
-        // skips an extra OSRM round-trip and prevents straight-line fallback on transient failures.
+        // skips an extra routing round-trip and prevents straight-line fallback on transient failures.
         const wpKey = waypoints.map(w => `${w.lat.toFixed(5)},${w.lng.toFixed(5)}`).join("|");
         if (generatedRouteRef.current && generatedRouteRef.current.key === wpKey) {
             setRoutedCoords(generatedRouteRef.current.coords);
@@ -671,7 +691,7 @@ function App() {
             }
         })();
         return () => { cancelled = true; };
-    }, [waypoints, snapToRoads]);
+    }, [waypoints, snapToRoads, routeProfile]);
 
     function drawRouteLine(coords) {
         const map = mapInstanceRef.current;
@@ -873,14 +893,15 @@ function App() {
         location.hash = "";
         showToast(tr("ล้างเส้นทางแล้ว", "Route cleared"));
     };
-    const regenerateLoop = async () => {
+    const regenerateLoop = async (typeOverride) => {
         if (!loopStart) { showToast(tr("แตะที่แผนที่เพื่อเลือกจุดเริ่มต้น", "Tap the map to choose a start point")); return; }
         if (generatingLoop) return;
+        const type = typeOverride || loopType; // explicit type avoids stale state right after switching
         const km = parseFloat(customKm) || loopKm;
         setGeneratingLoop(true);
-        const typeName = loopType === "oneway" ? tr("ไปไม่กลับ", "one-way") : tr("วงกลม", "loop");
+        const typeName = type === "oneway" ? tr("ไปไม่กลับ", "one-way") : tr("วงกลม", "loop");
         showToast(`${tr("กำลังสุ่มใหม่", "Regenerating")} ${typeName} ${km} ${tr("กม.", "km")} ...`);
-        const result = loopType === "oneway"
+        const result = type === "oneway"
             ? await generateSmoothOneWay(loopStart, km * 1000, Math.random(), loopPoints, 8)
             : await generateSmoothLoop(loopStart, km * 1000, Math.random(), loopPoints, 8);
         setGeneratingLoop(false);
@@ -894,6 +915,13 @@ function App() {
         showToast(result.smooth
             ? `✓ ${typeName} ${fmtDistance(result.actual)} (${result.n} ${tr("จุด", "pts")})`
             : `⚠ ${tr("คุณภาพต่ำ", "low quality")} ${fmtDistance(result.actual)} (${result.n} ${tr("จุด", "pts")})`);
+    };
+    // Switch loop/one-way type. If a start point already exists, regenerate immediately with the
+    // new type (passed explicitly to avoid stale state) so the user doesn't have to clear first.
+    const switchLoopType = (newType) => {
+        if (newType === loopType) return;
+        setLoopType(newType);
+        if (loopMode && loopStart && !generatingLoop) regenerateLoop(newType);
     };
     const shareRoute = async () => {
         if (waypoints.length < 2) { showToast(tr("ต้องมีอย่างน้อย 2 จุด", "Need at least 2 points")); return; }
@@ -1024,11 +1052,64 @@ function App() {
                 </header>
             )}
 
+            {/* Quick-access bar — most-used controls, always visible (scrolls horizontally on mobile) */}
+            {uiVisible && (
+                <div className="bg-white border-b border-gray-200 px-2 py-1.5 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap shadow-sm">
+                    <button onClick={() => setLoopMode(m => !m)}
+                        className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${loopMode ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700"}`}>
+                        🔄 {tr("อัตโนมัติ", "Auto")}
+                    </button>
+                    {loopMode ? (
+                        <>
+                            <div className="flex-shrink-0 flex rounded-full overflow-hidden border border-gray-300">
+                                <button onClick={() => switchLoopType("loop")}
+                                    className={`px-2.5 py-1 text-xs font-medium ${loopType === "loop" ? "bg-green-600 text-white" : "bg-white text-gray-700"}`}>🔁 {tr("ไปกลับ", "Round")}</button>
+                                <button onClick={() => switchLoopType("oneway")}
+                                    className={`px-2.5 py-1 text-xs font-medium ${loopType === "oneway" ? "bg-green-600 text-white" : "bg-white text-gray-700"}`}>➡️ {tr("ไปไม่กลับ", "One-way")}</button>
+                            </div>
+                            <span className="flex-shrink-0 w-px h-5 bg-gray-200" />
+                            {LOOP_PRESETS.map(p => (
+                                <button key={p.km} onClick={() => { setLoopKm(p.km); setCustomKm(""); }}
+                                    className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${!customKm && loopKm === p.km ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700"}`}>
+                                    {p.km} {tr("กม.", "km")}
+                                </button>
+                            ))}
+                            <button onClick={() => regenerateLoop()} disabled={!loopStart || generatingLoop}
+                                className="flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 active:bg-green-200 disabled:opacity-50">
+                                {generatingLoop ? "..." : "🎲"}
+                            </button>
+                        </>
+                    ) : (
+                        <span className="text-[11px] text-gray-400 px-1">{tr("👆 แตะแผนที่เพื่อปักจุดเอง", "👆 Tap map to place points")}</span>
+                    )}
+                    {waypoints.length > 0 && (
+                        <button onClick={clearRoute}
+                            className="flex-shrink-0 ml-auto px-2.5 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700 active:bg-red-100">
+                            🗑️ {tr("ล้าง", "Clear")}
+                        </button>
+                    )}
+                </div>
+            )}
+
             {/* Map area with left panel + side rail */}
-            <div className="flex-1 flex gap-2 p-2 min-h-0">
-                {/* LEFT panel: loop generator + waypoint editor */}
+            <div className="flex-1 flex gap-2 p-2 min-h-0 relative">
+                {/* Mobile: backdrop behind the drawer */}
+                {uiVisible && panelOpen && (
+                    <div onClick={() => setPanelOpen(false)}
+                        className="fixed inset-0 bg-black bg-opacity-40 z-[1100] md:hidden" />
+                )}
+                {/* Mobile: floating button to open the drawer */}
+                {uiVisible && !panelOpen && (
+                    <button onClick={() => setPanelOpen(true)}
+                        className="md:hidden absolute top-3 left-3 z-[900] w-10 h-10 rounded-full bg-white shadow-lg flex items-center justify-center text-xl active:bg-gray-100"
+                        title={tr("เมนู", "Menu")}>☰</button>
+                )}
+                {/* LEFT panel: loop generator + waypoint editor — drawer on mobile, inline column on desktop */}
                 {uiVisible && (
-                    <div className="w-56 md:w-64 flex-shrink-0 flex flex-col gap-2 overflow-y-auto bg-white rounded-xl shadow p-3">
+                    <div className={`flex flex-col gap-2 overflow-y-auto bg-white shadow p-3 transition-transform fixed inset-y-0 left-0 z-[1200] w-64 max-w-[82%] rounded-r-xl ${panelOpen ? "translate-x-0" : "-translate-x-full"} md:static md:translate-x-0 md:w-64 md:flex-shrink-0 md:rounded-xl md:z-auto md:max-w-none`}>
+                        {/* Mobile: close drawer */}
+                        <button onClick={() => setPanelOpen(false)}
+                            className="md:hidden self-end w-8 h-8 -mt-1 -mr-1 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 active:bg-gray-200">✕</button>
                         {/* Loop generator */}
                         <div className="p-2 bg-gray-50 rounded-lg">
                             <label className="flex items-center gap-2 text-sm font-medium text-gray-800 cursor-pointer">
@@ -1040,23 +1121,14 @@ function App() {
                             {loopMode && (
                                 <div className="mt-2">
                                     <div className="flex gap-1 mb-2">
-                                        <button onClick={() => setLoopType("loop")}
-                                            className={`flex-1 py-1 rounded text-xs font-medium ${loopType === "loop" ? "bg-green-600 text-white" : "bg-white border border-gray-300 text-gray-700"}`}>
-                                            🔁 {tr("ไปกลับ", "Round trip")}
+                                        <button onClick={() => changeRouteProfile("foot")}
+                                            className={`flex-1 py-1 rounded text-xs font-medium ${routeProfile === "foot" ? "bg-green-600 text-white" : "bg-white border border-gray-300 text-gray-700"}`}>
+                                            🏘️ {tr("รวมซอย", "Incl. alleys")}
                                         </button>
-                                        <button onClick={() => setLoopType("oneway")}
-                                            className={`flex-1 py-1 rounded text-xs font-medium ${loopType === "oneway" ? "bg-green-600 text-white" : "bg-white border border-gray-300 text-gray-700"}`}>
-                                            ➡️ {tr("ไปไม่กลับ", "One-way")}
+                                        <button onClick={() => changeRouteProfile("driving")}
+                                            className={`flex-1 py-1 rounded text-xs font-medium ${routeProfile === "driving" ? "bg-green-600 text-white" : "bg-white border border-gray-300 text-gray-700"}`}>
+                                            🛣️ {tr("ถนนหลัก", "Main roads")}
                                         </button>
-                                    </div>
-                                    <div className="flex flex-wrap gap-1 mb-2">
-                                        {LOOP_PRESETS.map(p => (
-                                            <button key={p.km}
-                                                onClick={() => { setLoopKm(p.km); setCustomKm(""); }}
-                                                className={`px-2 py-1 rounded-full text-xs font-medium ${!customKm && loopKm === p.km ? "bg-green-600 text-white" : "bg-white border border-gray-300 text-gray-700"}`}>
-                                                {p.km} {tr("กม.", "km")}
-                                            </button>
-                                        ))}
                                     </div>
                                     <div className="flex items-center gap-1 mb-2">
                                         <input type="number" inputMode="decimal" step="0.5" min="0.5"
@@ -1068,15 +1140,17 @@ function App() {
                                             {generatingLoop ? "..." : "🎲"}
                                         </button>
                                     </div>
-                                    <div className="flex items-center gap-1.5 text-xs text-gray-700">
-                                        <span>{tr("เริ่ม:", "Start:")}</span>
-                                        <button onClick={() => setLoopPoints(n => Math.max(3, n - 1))}
-                                            className="w-5 h-5 rounded bg-gray-200 font-bold active:bg-gray-300">−</button>
-                                        <span className="font-bold w-4 text-center">{loopPoints}</span>
-                                        <button onClick={() => setLoopPoints(n => Math.min(8, n + 1))}
-                                            className="w-5 h-5 rounded bg-gray-200 font-bold active:bg-gray-300">+</button>
-                                        <span className="text-gray-500 text-[10px]">{tr("จุด · auto-grow", "pts · auto-grow")}</span>
-                                    </div>
+                                    {loopType !== "oneway" && (
+                                        <div className="flex items-center gap-1.5 text-xs text-gray-700">
+                                            <span>{tr("เริ่ม:", "Start:")}</span>
+                                            <button onClick={() => setLoopPoints(n => Math.max(3, n - 1))}
+                                                className="w-5 h-5 rounded bg-gray-200 font-bold active:bg-gray-300">−</button>
+                                            <span className="font-bold w-4 text-center">{loopPoints}</span>
+                                            <button onClick={() => setLoopPoints(n => Math.min(8, n + 1))}
+                                                className="w-5 h-5 rounded bg-gray-200 font-bold active:bg-gray-300">+</button>
+                                            <span className="text-gray-500 text-[10px]">{tr("จุด · auto-grow", "pts · auto-grow")}</span>
+                                        </div>
+                                    )}
                                     {!loopStart && (
                                         <div className="text-[10px] text-gray-500 mt-2">👆 {tr("แตะที่แผนที่", "Tap the map")}</div>
                                     )}
@@ -1120,24 +1194,19 @@ function App() {
                                 {editableWps.length === 0 ? (
                                     <div className="text-[10px] text-gray-400 text-center py-2">{tr("ยังไม่มีจุดผ่าน", "No waypoints yet")}</div>
                                 ) : (
-                                    <div className="space-y-1 max-h-64 overflow-y-auto">
+                                    <div className="space-y-1">
                                         {editableWps.map((wp, i) => (
-                                            <div key={i} className="flex items-center gap-0.5 bg-gray-50 rounded p-1 text-[10px]">
-                                                <span className="font-bold text-gray-700 w-4 text-center">{i + 1}</span>
-                                                <input type="number" step="0.00001" value={wp.lat.toFixed(5)}
-                                                    onChange={(e) => updateWaypointCoord(i, "lat", e.target.value)}
-                                                    className="flex-1 min-w-0 px-0.5 py-0.5 border border-gray-200 rounded text-[10px]" />
-                                                <input type="number" step="0.00001" value={wp.lng.toFixed(5)}
-                                                    onChange={(e) => updateWaypointCoord(i, "lng", e.target.value)}
-                                                    className="flex-1 min-w-0 px-0.5 py-0.5 border border-gray-200 rounded text-[10px]" />
+                                            <div key={i} className="flex items-center gap-1 bg-gray-50 rounded px-2 py-1.5 text-xs">
+                                                <span className="font-bold text-gray-700 w-5">{i + 1}</span>
+                                                <span className="flex-1 text-gray-400">{tr("จุดที่", "Point")} {i + 1}</span>
                                                 <button onClick={() => moveWaypoint(i, -1)} disabled={i === 0}
-                                                    className="px-0.5 text-gray-500 disabled:opacity-30">↑</button>
+                                                    className="px-1.5 py-0.5 text-sm text-gray-500 disabled:opacity-30">↑</button>
                                                 <button onClick={() => moveWaypoint(i, 1)} disabled={i === editableWps.length - 1}
-                                                    className="px-0.5 text-gray-500 disabled:opacity-30">↓</button>
+                                                    className="px-1.5 py-0.5 text-sm text-gray-500 disabled:opacity-30">↓</button>
                                                 <button onClick={() => insertAfter(i)}
-                                                    className="px-0.5 text-green-600">＋</button>
+                                                    className="px-1.5 py-0.5 text-sm text-green-600">＋</button>
                                                 <button onClick={() => deleteWaypointAt(i)}
-                                                    className="px-0.5 text-red-500">×</button>
+                                                    className="px-1.5 py-0.5 text-sm text-red-500">×</button>
                                             </div>
                                         ))}
                                     </div>
