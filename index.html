@@ -18,6 +18,16 @@
 
     <!-- Tailwind CSS via CDN (for prototyping) -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Enable class-based dark mode (toggled by adding/removing `dark` on <html>)
+        tailwind.config = { darkMode: 'class' };
+        // Apply persisted theme before paint so there's no light-then-dark flash
+        try {
+            if (localStorage.getItem('runplanner.theme') === 'dark') {
+                document.documentElement.classList.add('dark');
+            }
+        } catch {}
+    </script>
 
     <style>
         html, body, #root {
@@ -44,6 +54,27 @@
         }
         .app-bg {
             background: linear-gradient(135deg, #ecfdf5 0%, #e0f2fe 100%);
+        }
+        html.dark .app-bg {
+            background: linear-gradient(135deg, #0b1220 0%, #0e1a26 100%);
+        }
+        html.dark .leaflet-container {
+            background: #1f2937;
+        }
+        html.dark .side-rail-btn {
+            background: #1f2937;
+            border-color: rgba(255,255,255,0.08);
+            color: #e5e7eb;
+        }
+        html.dark .side-rail-btn:active {
+            background: #374151;
+        }
+        html.dark .map-frame {
+            background: #111827;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.06);
+        }
+        html.dark .panel {
+            background: rgba(17, 24, 39, 0.97);
         }
         .side-rail-btn {
             background: white;
@@ -164,7 +195,7 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <script type="text/babel" src="app.js?v=33"></script>
+    <script type="text/babel" src="app.js?v=34"></script>
 
     <script>
         // Auto-unregister old service workers and clear caches (dev mode safety)

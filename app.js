@@ -438,7 +438,7 @@ function ElevationChart({ elevations, totalDistanceM }) {
                         const pct = totalKm > 0 ? (km / totalKm) * 100 : 0;
                         return (
                             <span key={i}
-                                  className="absolute text-[9px] text-gray-500 whitespace-nowrap"
+                                  className="absolute text-[9px] text-gray-500 dark:text-gray-400 whitespace-nowrap"
                                   style={{ left: `${pct}%`, transform: "translateX(-50%)" }}>
                                 {km < 1 ? `${Math.round(km * 1000)}${tr("ม", "m")}` : `${km.toFixed(km % 1 === 0 ? 0 : 1)}${tr("กม", "km")}`}
                             </span>
@@ -446,7 +446,7 @@ function ElevationChart({ elevations, totalDistanceM }) {
                     })}
                 </div>
             </div>
-            <div className="flex justify-between text-[10px] text-gray-600 mt-1">
+            <div className="flex justify-between text-[10px] text-gray-600 dark:text-gray-300 mt-1">
                 <span>{tr("ต่ำ", "Low")} {Math.round(min)}{tr("ม", "m")}</span>
                 <span className="text-green-700">↑{Math.round(elevationGain(elevations))}{tr("ม", "m")}</span>
                 <span className="text-red-700">↓{Math.round(elevationLoss(elevations))}{tr("ม", "m")}</span>
@@ -468,6 +468,18 @@ function App() {
         try { localStorage.setItem(LANG_KEY, nl); } catch {}
         return nl;
     });
+
+    // Theme (light/dark). Initial value is read before paint by an inline script in index.html
+    // (which adds `dark` to <html>), so we just mirror that into React state on first render.
+    const [theme, setTheme] = useState(() => {
+        try { return localStorage.getItem("runplanner.theme") === "dark" ? "dark" : "light"; } catch { return "light"; }
+    });
+    useEffect(() => {
+        const root = document.documentElement;
+        if (theme === "dark") root.classList.add("dark"); else root.classList.remove("dark");
+        try { localStorage.setItem("runplanner.theme", theme); } catch {}
+    }, [theme]);
+    const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
 
     const [routeProfile, setRouteProfile] = useState(() => {
         try { return localStorage.getItem("runplanner.profile") === "driving" ? "driving" : "foot"; } catch { return "foot"; }
@@ -995,15 +1007,15 @@ function App() {
         <div className="flex flex-col h-full app-bg">
             {/* Header */}
             {uiVisible && (
-                <header className="flex items-center justify-between px-4 py-2 bg-white shadow-sm">
+                <header className="flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 shadow-sm">
                     <div className="flex items-center gap-2">
                         <div className="text-2xl">🏃</div>
                         <div>
-                            <div className="font-bold text-gray-800 leading-tight text-sm">RunPlanner</div>
-                            <div className="text-[10px] text-gray-500 leading-tight">{tr("วางแผนเส้นทางวิ่ง", "Plan your running route")}</div>
+                            <div className="font-bold text-gray-800 dark:text-gray-100 leading-tight text-sm">RunPlanner</div>
+                            <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">{tr("วางแผนเส้นทางวิ่ง", "Plan your running route")}</div>
                         </div>
                     </div>
-                    <div className="text-xs text-gray-600">
+                    <div className="text-xs text-gray-600 dark:text-gray-300">
                         {plannedDistance > 0 && (
                             <span><b className="text-green-700">{fmtDistance(plannedDistance)}</b>
                                 {(gain > 0 || loss > 0) && <span> · <span className="text-orange-600">↑{Math.round(gain)}</span>·<span className="text-blue-600">↓{Math.round(loss)}</span>{tr("ม.", "m")}</span>}
@@ -1016,23 +1028,23 @@ function App() {
 
             {/* Quick-access bar — most-used controls, always visible (scrolls horizontally on mobile) */}
             {uiVisible && (
-                <div className="bg-white border-b border-gray-200 px-2 py-1.5 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap shadow-sm">
+                <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-2 py-1.5 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap shadow-sm">
                     <button onClick={() => setLoopMode(m => !m)}
-                        className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${loopMode ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700"}`}>
+                        className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${loopMode ? "bg-green-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200"}`}>
                         🔄 {tr("อัตโนมัติ", "Auto")}
                     </button>
                     {loopMode ? (
                         <>
-                            <div className="flex-shrink-0 flex rounded-full overflow-hidden border border-gray-300">
+                            <div className="flex-shrink-0 flex rounded-full overflow-hidden border border-gray-300 dark:border-gray-600">
                                 <button onClick={() => switchLoopType("loop")}
-                                    className={`px-2.5 py-1 text-xs font-medium ${loopType === "loop" ? "bg-green-600 text-white" : "bg-white text-gray-700"}`}>🔁 {tr("ไปกลับ", "Round")}</button>
+                                    className={`px-2.5 py-1 text-xs font-medium ${loopType === "loop" ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>🔁 {tr("ไปกลับ", "Round")}</button>
                                 <button onClick={() => switchLoopType("oneway")}
-                                    className={`px-2.5 py-1 text-xs font-medium ${loopType === "oneway" ? "bg-green-600 text-white" : "bg-white text-gray-700"}`}>➡️ {tr("ไปไม่กลับ", "One-way")}</button>
+                                    className={`px-2.5 py-1 text-xs font-medium ${loopType === "oneway" ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>➡️ {tr("ไปไม่กลับ", "One-way")}</button>
                             </div>
                             <span className="flex-shrink-0 w-px h-5 bg-gray-200" />
                             {LOOP_PRESETS.map(p => (
                                 <button key={p.km} onClick={() => { setLoopKm(p.km); setCustomKm(""); }}
-                                    className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${!customKm && loopKm === p.km ? "bg-green-600 text-white" : "bg-gray-100 text-gray-700"}`}>
+                                    className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${!customKm && loopKm === p.km ? "bg-green-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200"}`}>
                                     {p.km} {tr("กม.", "km")}
                                 </button>
                             ))}
@@ -1063,18 +1075,18 @@ function App() {
                 {/* Mobile: floating button to open the drawer */}
                 {uiVisible && !panelOpen && (
                     <button onClick={() => setPanelOpen(true)}
-                        className="md:hidden absolute top-3 left-3 z-[900] w-10 h-10 rounded-full bg-white shadow-lg flex items-center justify-center text-xl active:bg-gray-100"
+                        className="md:hidden absolute top-3 left-3 z-[900] w-10 h-10 rounded-full bg-white dark:bg-gray-900 shadow-lg flex items-center justify-center text-xl active:bg-gray-100 dark:bg-gray-700"
                         title={tr("เมนู", "Menu")}>☰</button>
                 )}
                 {/* LEFT panel: loop generator + waypoint editor — drawer on mobile, inline column on desktop */}
                 {uiVisible && (
-                    <div className={`flex flex-col gap-2 overflow-y-auto bg-white shadow p-3 transition-transform fixed inset-y-0 left-0 z-[1200] w-64 max-w-[82%] rounded-r-xl ${panelOpen ? "translate-x-0" : "-translate-x-full"} md:static md:translate-x-0 md:w-64 md:flex-shrink-0 md:rounded-xl md:z-auto md:max-w-none`}>
+                    <div className={`flex flex-col gap-2 overflow-y-auto bg-white dark:bg-gray-900 shadow p-3 transition-transform fixed inset-y-0 left-0 z-[1200] w-64 max-w-[82%] rounded-r-xl ${panelOpen ? "translate-x-0" : "-translate-x-full"} md:static md:translate-x-0 md:w-64 md:flex-shrink-0 md:rounded-xl md:z-auto md:max-w-none`}>
                         {/* Mobile: close drawer */}
                         <button onClick={() => setPanelOpen(false)}
-                            className="md:hidden self-end w-8 h-8 -mt-1 -mr-1 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 active:bg-gray-200">✕</button>
+                            className="md:hidden self-end w-8 h-8 -mt-1 -mr-1 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 active:bg-gray-200">✕</button>
                         {/* Loop generator */}
-                        <div className="p-2 bg-gray-50 rounded-lg">
-                            <label className="flex items-center gap-2 text-sm font-medium text-gray-800 cursor-pointer">
+                        <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                            <label className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-100 cursor-pointer">
                                 <input type="checkbox" checked={loopMode}
                                     onChange={(e) => setLoopMode(e.target.checked)}
                                     className="w-4 h-4 accent-green-600" />
@@ -1084,11 +1096,11 @@ function App() {
                                 <div className="mt-2">
                                     <div className="flex gap-1 mb-2">
                                         <button onClick={() => changeRouteProfile("foot")}
-                                            className={`flex-1 py-1 rounded text-xs font-medium ${routeProfile === "foot" ? "bg-green-600 text-white" : "bg-white border border-gray-300 text-gray-700"}`}>
+                                            className={`flex-1 py-1 rounded text-xs font-medium ${routeProfile === "foot" ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200"}`}>
                                             🏘️ {tr("รวมซอย", "Incl. alleys")}
                                         </button>
                                         <button onClick={() => changeRouteProfile("driving")}
-                                            className={`flex-1 py-1 rounded text-xs font-medium ${routeProfile === "driving" ? "bg-green-600 text-white" : "bg-white border border-gray-300 text-gray-700"}`}>
+                                            className={`flex-1 py-1 rounded text-xs font-medium ${routeProfile === "driving" ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200"}`}>
                                             🛣️ {tr("ถนนหลัก", "Main roads")}
                                         </button>
                                     </div>
@@ -1096,30 +1108,30 @@ function App() {
                                         <input type="number" inputMode="decimal" step="0.5" min="0.5"
                                             placeholder={tr("กำหนดเอง (กม.)", "Custom (km)")} value={customKm}
                                             onChange={(e) => setCustomKm(e.target.value)}
-                                            className="flex-1 min-w-0 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:border-green-500" />
+                                            className="flex-1 min-w-0 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:border-green-500" />
                                         <button onClick={regenerateLoop} disabled={!loopStart || generatingLoop}
                                             className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium active:bg-green-200 disabled:opacity-50">
                                             {generatingLoop ? "..." : "🎲"}
                                         </button>
                                     </div>
                                     {loopType !== "oneway" && (
-                                        <div className="flex items-center gap-1.5 text-xs text-gray-700">
+                                        <div className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-200">
                                             <span>{tr("เริ่ม:", "Start:")}</span>
                                             <button onClick={() => setLoopPoints(n => Math.max(3, n - 1))}
                                                 className="w-5 h-5 rounded bg-gray-200 font-bold active:bg-gray-300">−</button>
                                             <span className="font-bold w-4 text-center">{loopPoints}</span>
                                             <button onClick={() => setLoopPoints(n => Math.min(8, n + 1))}
                                                 className="w-5 h-5 rounded bg-gray-200 font-bold active:bg-gray-300">+</button>
-                                            <span className="text-gray-500 text-[10px]">{tr("จุด · auto-grow", "pts · auto-grow")}</span>
+                                            <span className="text-gray-500 dark:text-gray-400 text-[10px]">{tr("จุด · auto-grow", "pts · auto-grow")}</span>
                                         </div>
                                     )}
                                     {!loopStart && (
-                                        <div className="text-[10px] text-gray-500 mt-2">👆 {tr("แตะที่แผนที่", "Tap the map")}</div>
+                                        <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-2">👆 {tr("แตะที่แผนที่", "Tap the map")}</div>
                                     )}
                                 </div>
                             )}
                             {!loopMode && (
-                                <label className="flex items-center gap-2 text-xs text-gray-700 mt-2">
+                                <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200 mt-2">
                                     <input type="checkbox" checked={snapToRoads}
                                         onChange={(e) => setSnapToRoads(e.target.checked)}
                                         className="w-4 h-4 accent-green-600" />
@@ -1129,11 +1141,11 @@ function App() {
                         </div>
 
                         {/* Waypoint editor */}
-                        <div className="border border-gray-200 rounded-lg overflow-hidden">
-                            <div className="px-3 py-2 bg-gray-50 text-sm font-medium text-gray-800">
+                        <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                            <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 text-sm font-medium text-gray-800 dark:text-gray-100">
                                 ✏️ {tr("แก้ไขจุดผ่าน", "Edit waypoints")} ({editableWps.length})
                             </div>
-                            <div className="p-2 space-y-2 bg-white">
+                            <div className="p-2 space-y-2 bg-white dark:bg-gray-900">
                                 <div className="grid grid-cols-2 gap-1">
                                     <button onClick={reverseRoute} disabled={waypoints.length < 2}
                                         className="py-1 px-1 bg-indigo-50 text-indigo-700 rounded text-[10px] font-medium active:bg-indigo-100 disabled:opacity-50">🔁 {tr("กลับทิศ", "Reverse")}</button>
@@ -1147,24 +1159,24 @@ function App() {
                                         className="col-span-2 py-1 px-1 bg-green-50 text-green-700 rounded text-[10px] font-medium active:bg-green-100 disabled:opacity-50">🔗 {tr("เชื่อมกลับจุดเริ่มต้น", "Close loop")}</button>
                                 </div>
                                 <div className="flex items-center gap-1 px-1">
-                                    <span className="text-[10px] text-gray-500">{tr("ลด", "min")} &gt;</span>
+                                    <span className="text-[10px] text-gray-500 dark:text-gray-400">{tr("ลด", "min")} &gt;</span>
                                     <input type="number" min="5" max="500" step="5" value={simplifyEpsilon}
                                         onChange={(e) => setSimplifyEpsilon(parseInt(e.target.value) || 30)}
-                                        className="w-14 px-1 py-0.5 text-[10px] border border-gray-300 rounded" />
-                                    <span className="text-[10px] text-gray-500">{tr("ม.", "m")}</span>
+                                        className="w-14 px-1 py-0.5 text-[10px] border border-gray-300 dark:border-gray-600 rounded" />
+                                    <span className="text-[10px] text-gray-500 dark:text-gray-400">{tr("ม.", "m")}</span>
                                 </div>
                                 {editableWps.length === 0 ? (
                                     <div className="text-[10px] text-gray-400 text-center py-2">{tr("ยังไม่มีจุดผ่าน", "No waypoints yet")}</div>
                                 ) : (
                                     <div className="space-y-1">
                                         {editableWps.map((wp, i) => (
-                                            <div key={i} className="flex items-center gap-1 bg-gray-50 rounded px-2 py-1.5 text-xs">
-                                                <span className="font-bold text-gray-700 w-5">{i + 1}</span>
+                                            <div key={i} className="flex items-center gap-1 bg-gray-50 dark:bg-gray-800 rounded px-2 py-1.5 text-xs">
+                                                <span className="font-bold text-gray-700 dark:text-gray-200 w-5">{i + 1}</span>
                                                 <span className="flex-1 text-gray-400">{tr("จุดที่", "Point")} {i + 1}</span>
                                                 <button onClick={() => moveWaypoint(i, -1)} disabled={i === 0}
-                                                    className="px-1.5 py-0.5 text-sm text-gray-500 disabled:opacity-30">↑</button>
+                                                    className="px-1.5 py-0.5 text-sm text-gray-500 dark:text-gray-400 disabled:opacity-30">↑</button>
                                                 <button onClick={() => moveWaypoint(i, 1)} disabled={i === editableWps.length - 1}
-                                                    className="px-1.5 py-0.5 text-sm text-gray-500 disabled:opacity-30">↓</button>
+                                                    className="px-1.5 py-0.5 text-sm text-gray-500 dark:text-gray-400 disabled:opacity-30">↓</button>
                                                 <button onClick={() => insertAfter(i)}
                                                     className="px-1.5 py-0.5 text-sm text-green-600">＋</button>
                                                 <button onClick={() => deleteWaypointAt(i)}
@@ -1178,7 +1190,7 @@ function App() {
 
                         <div className="grid grid-cols-2 gap-1.5">
                             <button onClick={undoWaypoint} disabled={waypoints.length === 0}
-                                className="py-1.5 px-2 bg-gray-100 rounded text-xs font-medium text-gray-700 active:bg-gray-200 disabled:opacity-50">↶ {tr("ย้อน", "Undo")}</button>
+                                className="py-1.5 px-2 bg-gray-100 dark:bg-gray-700 rounded text-xs font-medium text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-50">↶ {tr("ย้อน", "Undo")}</button>
                             <button onClick={clearRoute} disabled={waypoints.length === 0}
                                 className="py-1.5 px-2 bg-red-50 text-red-700 rounded text-xs font-medium active:bg-red-100 disabled:opacity-50">🗑️ {tr("ล้าง", "Clear")}</button>
                         </div>
@@ -1192,6 +1204,10 @@ function App() {
                     <button onClick={toggleLang} className="side-rail-btn"
                         title={tr("ภาษา: ไทย (แตะเพื่อเปลี่ยนเป็นอังกฤษ)", "Language: English (tap to switch to Thai)")}>
                         <span className="text-base font-bold text-green-700">{lang === "en" ? "E" : "T"}</span>
+                    </button>
+                    <button onClick={toggleTheme} className="side-rail-btn"
+                        title={theme === "dark" ? tr("เปลี่ยนเป็นโหมดสว่าง", "Switch to light mode") : tr("เปลี่ยนเป็นโหมดมืด", "Switch to dark mode")}>
+                        <span className="text-lg">{theme === "dark" ? "☀️" : "🌙"}</span>
                     </button>
                     <button onClick={() => setUiVisible(v => !v)} className="side-rail-btn" title={uiVisible ? tr("ซ่อน UI", "Hide UI") : tr("แสดง UI", "Show UI")}>
                         <span className="text-lg">{uiVisible ? "🙈" : "👁️"}</span>
@@ -1221,10 +1237,10 @@ function App() {
 
             {/* Bottom bar — compact: distance + ↑↓ + pace */}
             {uiVisible && (
-                <div className="bg-white border-t border-gray-200 shadow-lg px-4 py-2 flex items-center justify-between gap-3 flex-wrap">
+                <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg px-4 py-2 flex items-center justify-between gap-3 flex-wrap">
                     <div className="flex items-baseline gap-3 flex-wrap">
                         <div>
-                            <div className="text-[10px] text-gray-500 leading-none">{tr("ระยะทาง", "Distance")}</div>
+                            <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-none">{tr("ระยะทาง", "Distance")}</div>
                             <div className="text-2xl font-bold text-green-700 leading-tight">
                                 {loadingRoute ? "..." : fmtDistance(plannedDistance)}
                             </div>
@@ -1242,15 +1258,15 @@ function App() {
                         )}
                     </div>
                     <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500">Pace</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Pace</span>
                         <input type="number" min="3" max="15" value={paceMin}
                             onChange={(e) => setPaceMin(Math.max(3, Math.min(15, parseInt(e.target.value) || 6)))}
-                            className="w-12 px-1 py-1 text-sm border border-gray-300 rounded text-center" />
-                        <span className="font-bold text-gray-700">:</span>
+                            className="w-12 px-1 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded text-center" />
+                        <span className="font-bold text-gray-700 dark:text-gray-200">:</span>
                         <input type="number" min="0" max="59" value={paceSec}
                             onChange={(e) => setPaceSec(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
-                            className="w-12 px-1 py-1 text-sm border border-gray-300 rounded text-center" />
-                        <span className="text-xs text-gray-500">/{tr("กม.", "km")}</span>
+                            className="w-12 px-1 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded text-center" />
+                        <span className="text-xs text-gray-500 dark:text-gray-400">/{tr("กม.", "km")}</span>
                         {estimatedSeconds > 0 && (
                             <div className="text-sm font-bold text-purple-700 ml-1 whitespace-nowrap">
                                 ⏱ {fmtTime(estimatedSeconds)}
@@ -1263,13 +1279,13 @@ function App() {
 
             {/* Elevation profile floating popup — draggable (header) + resizable (corner) */}
             {elevPopupOpen && elevations.length >= 2 && (
-                <div className="fixed z-40 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden"
+                <div className="fixed z-40 bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
                     style={elevPopupPos
                         ? { left: elevPopupPos.x, top: elevPopupPos.y, width: elevPopupDims.w, opacity: elevPopupOpacity }
                         : { right: 16, bottom: 16, width: elevPopupDims.w, opacity: elevPopupOpacity }}>
                     <div onPointerDown={startElevDrag}
-                        className="flex items-center justify-between px-2 py-1 bg-gray-50 border-b border-gray-100 cursor-move select-none touch-none">
-                        <span className="text-xs font-semibold text-gray-700">⛰️ {tr("ความชัน", "Elevation")}</span>
+                        className="flex items-center justify-between px-2 py-1 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 cursor-move select-none touch-none">
+                        <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">⛰️ {tr("ความชัน", "Elevation")}</span>
                         <div className="flex items-center gap-1">
                             <input type="range" min="0.3" max="1" step="0.05"
                                 value={elevPopupOpacity}
@@ -1277,7 +1293,7 @@ function App() {
                                 className="w-12 mx-1 accent-green-600"
                                 title={tr("ความโปร่งใส", "Opacity")} />
                             <button onClick={() => setElevPopupOpen(false)}
-                                className="w-5 h-5 rounded bg-gray-200 active:bg-gray-300 text-gray-600 text-xs">✕</button>
+                                className="w-5 h-5 rounded bg-gray-200 active:bg-gray-300 text-gray-600 dark:text-gray-300 text-xs">✕</button>
                         </div>
                     </div>
                     <div className="p-2" style={{ height: elevPopupDims.h }}>
