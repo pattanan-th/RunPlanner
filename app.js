@@ -1054,7 +1054,15 @@ function App() {
                             </button>
                         </>
                     ) : (
-                        <span className="text-[11px] text-gray-400 px-1">{tr("👆 แตะแผนที่เพื่อปักจุดเอง", "👆 Tap map to place points")}</span>
+                        <>
+                            <div className="flex-shrink-0 flex rounded-full overflow-hidden border border-gray-300 dark:border-gray-600">
+                                <button onClick={() => setSnapToRoads(true)}
+                                    className={`px-2.5 py-1 text-xs font-medium ${snapToRoads ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>🛣️ {tr("เกาะถนน", "Snap")}</button>
+                                <button onClick={() => setSnapToRoads(false)}
+                                    className={`px-2.5 py-1 text-xs font-medium ${!snapToRoads ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>✏️ {tr("ลากเส้นตรง", "Freehand")}</button>
+                            </div>
+                            <span className="flex-shrink-0 text-[11px] text-gray-400 px-1">{tr("👆 แตะแผนที่", "👆 Tap map")}</span>
+                        </>
                     )}
                     {waypoints.length > 0 && (
                         <button onClick={clearRoute}
@@ -1132,10 +1140,10 @@ function App() {
                             )}
                             {!loopMode && (
                                 <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200 mt-2">
-                                    <input type="checkbox" checked={snapToRoads}
-                                        onChange={(e) => setSnapToRoads(e.target.checked)}
+                                    <input type="checkbox" checked={!snapToRoads}
+                                        onChange={(e) => setSnapToRoads(!e.target.checked)}
                                         className="w-4 h-4 accent-green-600" />
-                                    {tr("ลากเส้นเอง", "Draw line")}
+                                    {tr("ลากเส้นเอง (ไม่เกาะถนน)", "Freehand (no road snap)")}
                                 </label>
                             )}
                         </div>
