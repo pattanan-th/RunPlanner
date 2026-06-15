@@ -247,12 +247,13 @@ async function fetchMultiWaypointRoute(waypoints) {
     } catch (e) { return null; }
 }
 
-// Trail routing via BRouter (free, CORS-ok). The "hiking-beta" profile follows OSM footpaths
-// and trails that Google's road router ignores — so routes can run along visible hiking trails.
-async function fetchTrailRoute(waypoints) {
+// Snap routing via BRouter (free, CORS-ok). Default profile is "shortest" — the most direct
+// foot route (uses roads AND trails, whichever is shorter), so the line doesn't take long
+// detours. "หาเส้นทางอื่น" offers other styles (trekking, hiking) for scenic/trail options.
+async function fetchTrailRoute(waypoints, profile = "shortest") {
     if (waypoints.length < 2) return null;
     const lonlats = waypoints.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join("|");
-    const url = `https://brouter.de/brouter?lonlats=${lonlats}&profile=hiking-beta&alternativeidx=0&format=geojson`;
+    const url = `https://brouter.de/brouter?lonlats=${lonlats}&profile=${profile}&alternativeidx=0&format=geojson`;
     try {
         const res = await fetch(url);
         if (!res.ok) throw new Error("brouter");
@@ -265,15 +266,15 @@ async function fetchTrailRoute(waypoints) {
     } catch (e) { return null; }
 }
 
-// Fetch up to 3 alternative routes for the same waypoints (BRouter alternativeidx 0..2),
-// Google-Maps style. Returns [{coords, dist, ascend}] deduped by distance.
+// Alternative routes = different BRouter profiles: shortest (direct) → trekking → hiking (scenic).
+// Returns [{coords, dist, ascend}] deduped by distance, shortest first.
 async function fetchRouteAlternatives(waypoints) {
     if (waypoints.length < 2) return [];
     const lonlats = waypoints.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join("|");
     const out = [];
-    for (let idx = 0; idx < 3; idx++) {
+    for (const profile of ["shortest", "trekking", "hiking-beta"]) {
         try {
-            const url = `https://brouter.de/brouter?lonlats=${lonlats}&profile=hiking-beta&alternativeidx=${idx}&format=geojson`;
+            const url = `https://brouter.de/brouter?lonlats=${lonlats}&profile=${profile}&alternativeidx=0&format=geojson`;
             const res = await fetch(url);
             if (!res.ok) continue;
             const j = await res.json();
@@ -285,6 +286,7 @@ async function fetchRouteAlternatives(waypoints) {
             out.push({ coords, dist, ascend });
         } catch (e) {}
     }
+    out.sort((a, b) => a.dist - b.dist);
     const seen = new Set(), uniq = [];
     for (const r of out) { const k = Math.round(r.dist / 50); if (!seen.has(k)) { seen.add(k); uniq.push(r); } }
     return uniq;
