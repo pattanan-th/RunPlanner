@@ -624,6 +624,8 @@ function App() {
 
     const [uiVisible, setUiVisible] = useState(true);
     const [panelOpen, setPanelOpen] = useState(false); // mobile drawer (left panel) open/closed; desktop always shows inline
+    const [editorCollapsed, setEditorCollapsed] = useState(false);
+    const [altCollapsed, setAltCollapsed] = useState(false);
     const [bottomCollapsed, setBottomCollapsed] = useState(false);
     const [editorOpen, setEditorOpen] = useState(false);
     const [simplifyEpsilon, setSimplifyEpsilon] = useState(30);
@@ -1158,7 +1160,7 @@ function App() {
     };
     const showAlternatives = async () => {
         if (waypoints.length < 2) { showToast(tr("ต้องมีอย่างน้อย 2 จุด", "Need at least 2 points")); return; }
-        setAltLoading(true); setAltOpen(true);
+        setAltLoading(true); setAltOpen(true); setAltCollapsed(false); setPanelOpen(true);
         const alts = await fetchRouteAlternatives(waypoints);
         setAltLoading(false);
         if (alts.length < 2) { setAltOpen(false); showToast(tr("ไม่พบเส้นทางอื่น", "No alternatives found")); return; }
@@ -1470,9 +1472,12 @@ function App() {
 
                         {/* Waypoint editor */}
                         <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                            <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 text-sm font-medium text-gray-800 dark:text-gray-100">
-                                ✏️ {tr("แก้ไขจุดผ่าน", "Edit waypoints")} ({editableWps.length})
-                            </div>
+                            <button onClick={() => setEditorCollapsed(c => !c)}
+                                className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 text-sm font-medium text-gray-800 dark:text-gray-100">
+                                <span>✏️ {tr("แก้ไขจุดผ่าน", "Edit waypoints")} ({editableWps.length})</span>
+                                <span className="text-gray-400 text-xs">{editorCollapsed ? "▸" : "▾"}</span>
+                            </button>
+                            {!editorCollapsed && (
                             <div className="p-2 space-y-2 bg-white dark:bg-gray-900">
                                 <div className="grid grid-cols-2 gap-1">
                                     <button onClick={reverseRoute} disabled={waypoints.length < 2}
@@ -1514,7 +1519,38 @@ function App() {
                                     </div>
                                 )}
                             </div>
+                            )}
                         </div>
+
+                        {/* Alternative routes (embedded) */}
+                        {altOpen && (
+                            <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                                <button onClick={() => setAltCollapsed(c => !c)}
+                                    className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 text-sm font-medium text-gray-800 dark:text-gray-100">
+                                    <span>🔀 {tr("เส้นทางแนะนำ", "Routes")} {altRoutes.length > 0 ? `(${altRoutes.length})` : ""}</span>
+                                    <span className="flex items-center gap-2">
+                                        <span onClick={(e) => { e.stopPropagation(); setAltOpen(false); }} className="text-gray-400 text-xs">✕</span>
+                                        <span className="text-gray-400 text-xs">{altCollapsed ? "▸" : "▾"}</span>
+                                    </span>
+                                </button>
+                                {!altCollapsed && (
+                                <div className="p-2 space-y-1 bg-white dark:bg-gray-900">
+                                    {altLoading ? (
+                                        <div className="text-xs text-gray-400 text-center py-3">{tr("กำลังหาเส้นทาง...", "Finding routes...")}</div>
+                                    ) : altRoutes.map((a, i) => (
+                                        <button key={i} onClick={() => applyAlt(i)}
+                                            className={`w-full text-left px-2 py-1.5 rounded text-xs border ${i === activeAltIdx ? "bg-green-100 dark:bg-green-900 border-green-500 text-green-800 dark:text-green-200" : "bg-gray-50 dark:bg-gray-800 border-transparent text-gray-700 dark:text-gray-200"}`}>
+                                            <div className="font-medium">{tr("เส้นทาง", "Route")} {i + 1}{i === 0 ? ` · ${tr("เร็วสุด", "best")}` : ""}</div>
+                                            <div className={i === activeAltIdx ? "opacity-90" : "text-gray-500 dark:text-gray-400"}>
+                                                {fmtDistance(a.dist)} · ↑{Math.round(a.ascend)}{tr("ม.", "m")}
+                                                {paceSecPerKm > 0 ? ` · ⏱ ${fmtTime((a.dist / 1000) * paceSecPerKm)}` : ""}
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                                )}
+                            </div>
+                        )}
 
                         <div className="grid grid-cols-3 gap-1.5">
                             <button onClick={undo} disabled={undoStack.current.length === 0}
@@ -1640,31 +1676,6 @@ function App() {
                         title={tr("ปรับขนาด", "Resize")}
                         className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize touch-none"
                         style={{ background: "linear-gradient(135deg, transparent 50%, #9ca3af 50%)" }} />
-                </div>
-            )}
-
-            {/* Alternative routes panel (Google-Maps style) */}
-            {altOpen && (
-                <div className="fixed left-4 bottom-24 z-40 bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden" style={{ width: 230 }}>
-                    <div className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
-                        <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">🔀 {tr("เส้นทางแนะนำ", "Routes")}</span>
-                        <button onClick={() => setAltOpen(false)}
-                            className="w-5 h-5 rounded bg-gray-200 dark:bg-gray-700 active:bg-gray-300 text-gray-600 dark:text-gray-300 text-xs">✕</button>
-                    </div>
-                    <div className="p-2 space-y-1">
-                        {altLoading ? (
-                            <div className="text-xs text-gray-400 text-center py-3">{tr("กำลังหาเส้นทาง...", "Finding routes...")}</div>
-                        ) : altRoutes.map((a, i) => (
-                            <button key={i} onClick={() => applyAlt(i)}
-                                className={`w-full text-left px-2 py-1.5 rounded text-xs ${i === activeAltIdx ? "bg-green-600 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-200 active:bg-gray-100"}`}>
-                                <div className="font-medium">{tr("เส้นทาง", "Route")} {i + 1}{i === 0 ? ` · ${tr("เร็วสุด", "best")}` : ""}</div>
-                                <div className={i === activeAltIdx ? "opacity-90" : "text-gray-500 dark:text-gray-400"}>
-                                    {fmtDistance(a.dist)} · ↑{Math.round(a.ascend)}{tr("ม.", "m")}
-                                    {paceSecPerKm > 0 ? ` · ⏱ ${fmtTime((a.dist / 1000) * paceSecPerKm)}` : ""}
-                                </div>
-                            </button>
-                        ))}
-                    </div>
                 </div>
             )}
 
