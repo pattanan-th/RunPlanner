@@ -684,7 +684,7 @@ function App() {
     const [showTrails, setShowTrails] = useState(false);  // Waymarked Trails hiking overlay
     const [showKm, setShowKm] = useState(false);          // show km distance markers along the route
     const [colorByGrade, setColorByGrade] = useState(false); // color the route line by slope steepness
-    const [cutThrough, setCutThrough] = useState(false);  // bridge short "closed" gaps with straight lines
+    const [cutThrough, setCutThrough] = useState(true);   // default on: bridge short "closed" gaps with straight lines
     const [histVer, setHistVer] = useState(0);            // bumps to refresh undo/redo button state
     const [toast, setToast] = useState(null);
 
