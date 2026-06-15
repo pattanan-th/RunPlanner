@@ -1417,7 +1417,7 @@ function App() {
                 )}
                 {/* LEFT panel: loop generator + waypoint editor — drawer on mobile, inline column on desktop */}
                 {uiVisible && (
-                    <div className={`flex flex-col gap-2 overflow-y-auto bg-white dark:bg-gray-900 shadow p-3 transition-transform fixed inset-y-0 left-0 z-[1200] w-64 max-w-[82%] rounded-r-xl ${panelOpen ? "translate-x-0" : "-translate-x-full"} md:static md:translate-x-0 md:w-64 md:flex-shrink-0 md:rounded-xl md:z-auto md:max-w-none`}>
+                    <div className={`flex flex-col gap-2 overflow-y-auto [&>*]:shrink-0 bg-white dark:bg-gray-900 shadow p-3 transition-transform fixed inset-y-0 left-0 z-[1200] w-64 max-w-[82%] rounded-r-xl ${panelOpen ? "translate-x-0" : "-translate-x-full"} md:static md:translate-x-0 md:w-64 md:flex-shrink-0 md:rounded-xl md:z-auto md:max-w-none`} style={{ WebkitOverflowScrolling: "touch" }}>
                         {/* Mobile: close drawer */}
                         <button onClick={() => setPanelOpen(false)}
                             className="md:hidden self-end w-8 h-8 -mt-1 -mr-1 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 active:bg-gray-200">✕</button>
