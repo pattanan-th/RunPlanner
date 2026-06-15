@@ -907,6 +907,8 @@ function App() {
                 return s / n;
             });
             const grp = L.layerGroup();
+            // Dark casing underneath the full route so the colored segments have a crisp edge.
+            L.polyline(routedCoords.map(c => [c.lat, c.lng]), { color: "#003300", weight: 8, opacity: 0.9 }).addTo(grp);
             for (let i = 1; i < routedCoords.length; i++) {
                 const band = Math.min(Math.floor((i - 1) / step), bandGrade.length - 1);
                 L.polyline(
@@ -917,10 +919,13 @@ function App() {
             grp.addTo(map);
             routeLineRef.current = grp;
         } else {
-            routeLineRef.current = L.polyline(
-                routedCoords.map(c => [c.lat, c.lng]),
-                { color: "#00CC00", weight: 5, opacity: 0.9 }
-            ).addTo(map);
+            // Two lines: a dark casing (edge) under a bright green line on top.
+            const grp = L.layerGroup();
+            const latlngs = routedCoords.map(c => [c.lat, c.lng]);
+            L.polyline(latlngs, { color: "#006600", weight: 8, opacity: 0.9 }).addTo(grp);
+            L.polyline(latlngs, { color: "#00CC00", weight: 4, opacity: 1 }).addTo(grp);
+            grp.addTo(map);
+            routeLineRef.current = grp;
         }
     }, [routedCoords, colorByGrade, elevations]);
 
