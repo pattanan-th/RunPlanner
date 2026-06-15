@@ -372,15 +372,20 @@ async function generateSmoothOneWay(start, targetMeters, seed, minPoints, maxPoi
     return best;
 }
 
+// Elevation via Open-Meteo (free, no key, CORS-enabled, reliable — open-elevation was 504-ing).
+// Up to 100 points per request, so we sample the route down to ~100 coords.
 async function fetchElevation(coords) {
     if (coords.length === 0) return [];
     const step = Math.max(1, Math.floor(coords.length / 100));
-    const sampled = coords.filter((_, i) => i % step === 0);
-    const locations = sampled.map(c => `${c.lat.toFixed(5)},${c.lng.toFixed(5)}`).join("|");
+    let sampled = coords.filter((_, i) => i % step === 0);
+    if (sampled.length > 100) sampled = sampled.slice(0, 100);
+    const lats = sampled.map(c => c.lat.toFixed(5)).join(",");
+    const lngs = sampled.map(c => c.lng.toFixed(5)).join(",");
     try {
-        const res = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${locations}`);
+        const res = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lngs}`);
         if (!res.ok) throw new Error("elevation");
-        return (await res.json()).results.map(r => r.elevation);
+        const j = await res.json();
+        return Array.isArray(j.elevation) ? j.elevation : [];
     } catch (e) { return []; }
 }
 
