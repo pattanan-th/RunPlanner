@@ -266,6 +266,46 @@ async function fetchTrailRoute(waypoints, profile = "shortest") {
     } catch (e) { return null; }
 }
 
+// Route a single leg A→B (for the cut-through hybrid). Returns {coords, dist} or null.
+async function fetchLegRoute(a, b, profile = "shortest") {
+    const lonlats = `${a.lng.toFixed(6)},${a.lat.toFixed(6)}|${b.lng.toFixed(6)},${b.lat.toFixed(6)}`;
+    try {
+        const res = await fetch(`https://brouter.de/brouter?lonlats=${lonlats}&profile=${profile}&alternativeidx=0&format=geojson`);
+        if (!res.ok) return null;
+        const f = (await res.json()).features[0];
+        if (!f || !f.geometry) return null;
+        const coords = f.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+        const dist = parseFloat(f.properties["track-length"]) || totalDistance(coords);
+        return { coords, dist };
+    } catch (e) { return null; }
+}
+
+// Cut-through hybrid: route each leg separately; if a SHORT leg (<250m crow-flies) detours
+// way too far (>2.5×) — a sign the map has a small "closed" path that's really passable — or
+// fails entirely, bridge it with a straight line. Long, legitimately winding legs are untouched.
+async function fetchSnapHybrid(waypoints, profile = "shortest") {
+    if (waypoints.length < 2) return null;
+    const legs = await Promise.all(
+        waypoints.slice(0, -1).map((a, i) => fetchLegRoute(a, waypoints[i + 1], profile))
+    );
+    let allCoords = [{ lat: waypoints[0].lat, lng: waypoints[0].lng }];
+    let actual = 0;
+    for (let i = 0; i < legs.length; i++) {
+        const a = waypoints[i], b = waypoints[i + 1];
+        const straight = haversine(a, b);
+        const leg = legs[i];
+        const blocked = !leg || (straight < 250 && leg.dist > straight * 2.5);
+        if (blocked) {
+            allCoords.push({ lat: b.lat, lng: b.lng });
+            actual += straight;
+        } else {
+            allCoords = allCoords.concat(leg.coords.slice(1));
+            actual += leg.dist;
+        }
+    }
+    return { snappedPoints: waypoints, allCoords, actual };
+}
+
 // Alternative routes = different BRouter profiles: shortest (direct) → trekking → hiking (scenic).
 // Returns [{coords, dist, ascend}] deduped by distance, shortest first.
 async function fetchRouteAlternatives(waypoints) {
@@ -644,6 +684,7 @@ function App() {
     const [showTrails, setShowTrails] = useState(false);  // Waymarked Trails hiking overlay
     const [showKm, setShowKm] = useState(false);          // show km distance markers along the route
     const [colorByGrade, setColorByGrade] = useState(false); // color the route line by slope steepness
+    const [cutThrough, setCutThrough] = useState(false);  // bridge short "closed" gaps with straight lines
     const [histVer, setHistVer] = useState(0);            // bumps to refresh undo/redo button state
     const [toast, setToast] = useState(null);
 
@@ -824,15 +865,16 @@ function App() {
                 return;
             }
             setLoadingRoute(true);
-            // Manual snap uses BRouter (hiking) so the line follows BOTH roads and trails in one —
-            // no separate trail mode. Falls back to Google road routing if BRouter is unavailable.
-            const result = await fetchTrailRoute(waypoints) || await fetchMultiWaypointRoute(waypoints);
+            // Manual snap uses BRouter (shortest) — roads + trails in one. "Cut through" bridges
+            // short closed gaps. Falls back to Google road routing if BRouter is unavailable.
+            const result = (cutThrough ? await fetchSnapHybrid(waypoints) : await fetchTrailRoute(waypoints))
+                || await fetchMultiWaypointRoute(waypoints);
             if (cancelled) return;
             setLoadingRoute(false);
             setRoutedCoords(result ? result.allCoords : waypoints);
         })();
         return () => { cancelled = true; };
-    }, [waypoints, snapToRoads, routeProfile]);
+    }, [waypoints, snapToRoads, routeProfile, cutThrough]);
 
     // Draw the route line. Plain green, or — when colorByGrade is on and elevation data exists —
     // split into segments colored by slope. Elevations are sampled (~100 pts), so each full-res
@@ -1501,6 +1543,11 @@ function App() {
                                         className="w-14 px-1 py-0.5 text-[10px] border border-gray-300 dark:border-gray-600 rounded" />
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400">{tr("ม.", "m")}</span>
                                 </div>
+                                <label className="flex items-center gap-2 text-[11px] text-gray-700 dark:text-gray-200 px-1 pt-1 border-t border-gray-100 dark:border-gray-700">
+                                    <input type="checkbox" checked={cutThrough} onChange={(e) => setCutThrough(e.target.checked)}
+                                        className="w-4 h-4 accent-green-600" />
+                                    ✂️ {tr("ทะลุทางปิดสั้น ๆ", "Cut through short gaps")}
+                                </label>
                             </div>
                             )}
                         </div>
