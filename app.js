@@ -627,6 +627,7 @@ function App() {
     const [uiVisible, setUiVisible] = useState(true);
     const [panelOpen, setPanelOpen] = useState(false); // mobile drawer (left panel) open/closed; desktop always shows inline
     const [editorCollapsed, setEditorCollapsed] = useState(false);
+    const [toolsCollapsed, setToolsCollapsed] = useState(false);
     const [altCollapsed, setAltCollapsed] = useState(false);
     const [bottomCollapsed, setBottomCollapsed] = useState(false);
     const [editorOpen, setEditorOpen] = useState(false);
@@ -1472,14 +1473,14 @@ function App() {
                             )}
                         </div>
 
-                        {/* Waypoint editor */}
+                        {/* Route tools */}
                         <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                            <button onClick={() => setEditorCollapsed(c => !c)}
+                            <button onClick={() => setToolsCollapsed(c => !c)}
                                 className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 text-sm font-medium text-gray-800 dark:text-gray-100">
-                                <span>✏️ {tr("แก้ไขจุดผ่าน", "Edit waypoints")} ({editableWps.length})</span>
-                                <span className="text-gray-400 text-xs">{editorCollapsed ? "▸" : "▾"}</span>
+                                <span>🛠️ {tr("เครื่องมือเส้นทาง", "Route tools")}</span>
+                                <span className="text-gray-400 text-xs">{toolsCollapsed ? "▸" : "▾"}</span>
                             </button>
-                            {!editorCollapsed && (
+                            {!toolsCollapsed && (
                             <div className="p-2 space-y-2 bg-white dark:bg-gray-900">
                                 <div className="grid grid-cols-2 gap-1">
                                     <button onClick={reverseRoute} disabled={waypoints.length < 2}
@@ -1500,6 +1501,19 @@ function App() {
                                         className="w-14 px-1 py-0.5 text-[10px] border border-gray-300 dark:border-gray-600 rounded" />
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400">{tr("ม.", "m")}</span>
                                 </div>
+                            </div>
+                            )}
+                        </div>
+
+                        {/* Waypoint editor */}
+                        <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                            <button onClick={() => setEditorCollapsed(c => !c)}
+                                className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 text-sm font-medium text-gray-800 dark:text-gray-100">
+                                <span>✏️ {tr("แก้ไขจุดผ่าน", "Edit waypoints")} ({editableWps.length})</span>
+                                <span className="text-gray-400 text-xs">{editorCollapsed ? "▸" : "▾"}</span>
+                            </button>
+                            {!editorCollapsed && (
+                            <div className="p-2 space-y-2 bg-white dark:bg-gray-900">
                                 {editableWps.length === 0 ? (
                                     <div className="text-[10px] text-gray-400 text-center py-2">{tr("ยังไม่มีจุดผ่าน", "No waypoints yet")}</div>
                                 ) : (
