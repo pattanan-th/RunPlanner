@@ -919,7 +919,7 @@ function App() {
         } else {
             routeLineRef.current = L.polyline(
                 routedCoords.map(c => [c.lat, c.lng]),
-                { color: "#10b981", weight: 5, opacity: 0.85 }
+                { color: "#00CC00", weight: 5, opacity: 0.9 }
             ).addTo(map);
         }
     }, [routedCoords, colorByGrade, elevations]);
@@ -958,7 +958,7 @@ function App() {
         const grp = L.layerGroup();
         altRoutes.forEach((a, i) => {
             if (i === activeAltIdx) return;
-            const pl = L.polyline(a.coords.map(c => [c.lat, c.lng]), { color: "#9ca3af", weight: 6, opacity: 0.55 });
+            const pl = L.polyline(a.coords.map(c => [c.lat, c.lng]), { color: "#66FF66", weight: 6, opacity: 0.7 });
             pl.on("click", () => applyAlt(i));
             pl.addTo(grp);
         });
