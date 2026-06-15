@@ -247,6 +247,24 @@ async function fetchMultiWaypointRoute(waypoints) {
     } catch (e) { return null; }
 }
 
+// Trail routing via BRouter (free, CORS-ok). The "hiking-beta" profile follows OSM footpaths
+// and trails that Google's road router ignores — so routes can run along visible hiking trails.
+async function fetchTrailRoute(waypoints) {
+    if (waypoints.length < 2) return null;
+    const lonlats = waypoints.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join("|");
+    const url = `https://brouter.de/brouter?lonlats=${lonlats}&profile=hiking-beta&alternativeidx=0&format=geojson`;
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("brouter");
+        const j = await res.json();
+        const f = j.features && j.features[0];
+        if (!f || !f.geometry) return null;
+        const allCoords = f.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+        const actual = parseFloat(f.properties && f.properties["track-length"]) || totalDistance(allCoords);
+        return { snappedPoints: waypoints, allCoords, actual };
+    } catch (e) { return null; }
+}
+
 // Snap a single point to the nearest road by routing it to itself and reading the snapped leg start.
 async function snapToRoad(pt) {
     const svc = dirService();
@@ -531,7 +549,7 @@ function App() {
     const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
 
     const [routeProfile, setRouteProfile] = useState(() => {
-        try { return localStorage.getItem("runplanner.profile") === "driving" ? "driving" : "foot"; } catch { return "foot"; }
+        try { const p = localStorage.getItem("runplanner.profile"); return (p === "driving" || p === "trail") ? p : "foot"; } catch { return "foot"; }
     });
     ROUTE_PROFILE = routeProfile; // keep module-level routing profile in sync for the API helpers
     const changeRouteProfile = (p) => {
@@ -712,8 +730,14 @@ function App() {
 
         visibleWps.forEach((wp, i) => {
             const isStart = i === 0;
-            const size = isStart ? 30 : 26;
-            const html = `<div class="run-marker ${isStart ? "run-marker-start" : ""}">${i + 1}</div>`;
+            const isEnd = !isStart && !isClosed && i === visibleWps.length - 1;
+            // International route symbols (not numbers) so waypoints don't clash with km markers:
+            // ▶ start · 🏁 finish · small dot = draggable via-point.
+            let cls, glyph, size;
+            if (isStart) { cls = "wp-start"; glyph = "▶"; size = 30; }
+            else if (isEnd) { cls = "wp-end"; glyph = "🏁"; size = 30; }
+            else { cls = "wp-via"; glyph = ""; size = 16; }
+            const html = `<div class="wp-marker ${cls}">${glyph}</div>`;
             const icon = L.divIcon({ html, className: "", iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
             const m = L.marker([wp.lat, wp.lng], { icon, draggable: true }).addTo(map);
             m.on("dragend", (e) => {
@@ -765,7 +789,9 @@ function App() {
                 return;
             }
             setLoadingRoute(true);
-            const result = await fetchMultiWaypointRoute(waypoints);
+            const result = routeProfile === "trail"
+                ? await fetchTrailRoute(waypoints)
+                : await fetchMultiWaypointRoute(waypoints);
             if (cancelled) return;
             setLoadingRoute(false);
             setRoutedCoords(result ? result.allCoords : waypoints);
@@ -1239,8 +1265,10 @@ function App() {
                     ) : (
                         <>
                             <div className="flex-shrink-0 flex rounded-full overflow-hidden border border-gray-300 dark:border-gray-600">
-                                <button onClick={() => setSnapToRoads(true)}
-                                    className={`px-2.5 py-1 text-xs font-medium ${snapToRoads ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>🛣️ {tr("เกาะถนน", "Snap")}</button>
+                                <button onClick={() => { setSnapToRoads(true); changeRouteProfile("foot"); }}
+                                    className={`px-2.5 py-1 text-xs font-medium ${snapToRoads && routeProfile !== "trail" ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>🛣️ {tr("เกาะถนน", "Road")}</button>
+                                <button onClick={() => { setSnapToRoads(true); changeRouteProfile("trail"); }}
+                                    className={`px-2.5 py-1 text-xs font-medium ${snapToRoads && routeProfile === "trail" ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>🥾 {tr("เทรล", "Trail")}</button>
                                 <button onClick={() => setSnapToRoads(false)}
                                     className={`px-2.5 py-1 text-xs font-medium ${!snapToRoads ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>✏️ {tr("ลากเส้นตรง", "Freehand")}</button>
                             </div>
