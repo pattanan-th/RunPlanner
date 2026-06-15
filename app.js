@@ -441,7 +441,7 @@ const TILE_LAYERS = {
 };
 
 // Transparent overlay of marked hiking/walking trails (Waymarked Trails) — sits on top of any base.
-const TRAIL_OVERLAY = { url: "https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png", opts: { maxZoom: 18, opacity: 0.7, attribution: "&copy; Waymarked Trails" } };
+const TRAIL_OVERLAY = { url: "https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png", opts: { maxZoom: 18, opacity: 1, attribution: "&copy; Waymarked Trails" } };
 
 // Continuous color ramp by grade (% slope): steep-down blue → flat green → steep-up red.
 // Interpolated (not bucketed) so adjacent segments blend into a smooth gradient along the route.
@@ -638,7 +638,6 @@ function App() {
     const [altLoading, setAltLoading] = useState(false);
     const [activeAltIdx, setActiveAltIdx] = useState(0);
     const [mapLayer, setMapLayer] = useState("standard"); // standard | satellite | terrain | trail
-    const [showTrails, setShowTrails] = useState(false);  // Waymarked Trails hiking overlay
     const [showKm, setShowKm] = useState(false);          // show km distance markers along the route
     const [colorByGrade, setColorByGrade] = useState(false); // color the route line by slope steepness
     const [histVer, setHistVer] = useState(0);            // bumps to refresh undo/redo button state
@@ -652,6 +651,9 @@ function App() {
         L.control.zoom({ position: "topright" }).addTo(map);
         const base = TILE_LAYERS.standard;
         tileLayerRef.current = L.tileLayer(base.url, base.opts).addTo(map);
+        // Hiking-trail overlay is always on (shows marked trails on top of the base map).
+        trailOverlayRef.current = L.tileLayer(TRAIL_OVERLAY.url, TRAIL_OVERLAY.opts).addTo(map);
+        trailOverlayRef.current.bringToFront();
         mapInstanceRef.current = map;
 
         const t1 = setTimeout(() => map.invalidateSize(), 100);
@@ -699,15 +701,6 @@ function App() {
         if (trailOverlayRef.current) trailOverlayRef.current.bringToFront();
     }, [mapLayer]);
 
-    // Waymarked Trails hiking overlay — transparent tiles on top of the base layer.
-    useEffect(() => {
-        const map = mapInstanceRef.current;
-        if (!map) return;
-        if (trailOverlayRef.current) { trailOverlayRef.current.remove(); trailOverlayRef.current = null; }
-        if (!showTrails) return;
-        trailOverlayRef.current = L.tileLayer(TRAIL_OVERLAY.url, TRAIL_OVERLAY.opts).addTo(map);
-        trailOverlayRef.current.bringToFront();
-    }, [showTrails]);
 
     useEffect(() => {
         const map = mapInstanceRef.current;
@@ -1443,11 +1436,6 @@ function App() {
                                     </button>
                                 ))}
                             </div>
-                            <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200">
-                                <input type="checkbox" checked={showTrails} onChange={(e) => setShowTrails(e.target.checked)}
-                                    className="w-4 h-4 accent-green-600" />
-                                🥾 {tr("เส้นทางเดินป่า", "Hiking trails")}
-                            </label>
                             <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200">
                                 <input type="checkbox" checked={showKm} onChange={(e) => setShowKm(e.target.checked)}
                                     className="w-4 h-4 accent-green-600" />
