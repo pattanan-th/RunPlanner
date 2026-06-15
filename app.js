@@ -396,13 +396,25 @@ const TILE_LAYERS = {
     terrain:   { url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", opts: { maxZoom: 17, attribution: "&copy; OpenTopoMap" } },
 };
 
-// Color a route segment by its grade (% slope): downhill blue → flat green → uphill red.
+// Continuous color ramp by grade (% slope): steep-down blue → flat green → steep-up red.
+// Interpolated (not bucketed) so adjacent segments blend into a smooth gradient along the route.
+const GRADE_STOPS = [[-12, "#1d4ed8"], [-6, "#38bdf8"], [0, "#10b981"], [6, "#f59e0b"], [12, "#ef4444"]];
+function lerpColor(a, b, t) {
+    const ah = parseInt(a.slice(1), 16), bh = parseInt(b.slice(1), 16);
+    const r = Math.round((ah >> 16) + (((bh >> 16) - (ah >> 16)) * t));
+    const g = Math.round(((ah >> 8) & 255) + ((((bh >> 8) & 255) - ((ah >> 8) & 255)) * t));
+    const bl = Math.round((ah & 255) + (((bh & 255) - (ah & 255)) * t));
+    return `#${((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1)}`;
+}
 function gradeColor(g) {
-    if (g <= -8) return "#1d4ed8";
-    if (g <= -3) return "#3b82f6";
-    if (g < 3) return "#10b981";
-    if (g < 8) return "#f59e0b";
-    return "#ef4444";
+    const x = Math.max(-12, Math.min(12, g));
+    for (let i = 1; i < GRADE_STOPS.length; i++) {
+        if (x <= GRADE_STOPS[i][0]) {
+            const [g0, c0] = GRADE_STOPS[i - 1], [g1, c1] = GRADE_STOPS[i];
+            return lerpColor(c0, c1, (x - g0) / (g1 - g0));
+        }
+    }
+    return GRADE_STOPS[GRADE_STOPS.length - 1][1];
 }
 
 // Out-and-back: route out to a point ~half the target away, then mirror the path back.
@@ -758,19 +770,28 @@ function App() {
 
         if (canGrade) {
             const last = routedCoords.length - 1;
-            const bandGrade = [];
+            const raw = [];
             for (let b = 0; b < elevations.length - 1; b++) {
                 const a = routedCoords[Math.min(b * step, last)];
                 const c = routedCoords[Math.min((b + 1) * step, last)];
                 const dx = haversine(a, c) || 1;
-                bandGrade[b] = ((elevations[b + 1] - elevations[b]) / dx) * 100;
+                raw[b] = ((elevations[b + 1] - elevations[b]) / dx) * 100;
             }
+            // Smooth grades (3-point moving average) so coarse elevation noise doesn't make the
+            // gradient flicker — the up/down trend reads cleanly.
+            const bandGrade = raw.map((_, b) => {
+                const a = raw[b - 1], c = raw[b + 1];
+                let s = raw[b], n = 1;
+                if (a !== undefined) { s += a; n++; }
+                if (c !== undefined) { s += c; n++; }
+                return s / n;
+            });
             const grp = L.layerGroup();
             for (let i = 1; i < routedCoords.length; i++) {
                 const band = Math.min(Math.floor((i - 1) / step), bandGrade.length - 1);
                 L.polyline(
                     [[routedCoords[i - 1].lat, routedCoords[i - 1].lng], [routedCoords[i].lat, routedCoords[i].lng]],
-                    { color: gradeColor(bandGrade[band] || 0), weight: 5, opacity: 0.9 }
+                    { color: gradeColor(bandGrade[band] || 0), weight: 5, opacity: 0.95 }
                 ).addTo(grp);
             }
             grp.addTo(map);
@@ -1315,11 +1336,13 @@ function App() {
                                 🌈 {tr("เส้นไล่สีตามความชัน", "Color by grade")}
                             </label>
                             {colorByGrade && (
-                                <div className="flex items-center justify-between text-[9px] text-gray-500 dark:text-gray-400 px-0.5">
-                                    <span style={{color:"#1d4ed8"}}>▇ {tr("ลง", "down")}</span>
-                                    <span style={{color:"#10b981"}}>▇ {tr("ราบ", "flat")}</span>
-                                    <span style={{color:"#f59e0b"}}>▇ {tr("ชัน", "up")}</span>
-                                    <span style={{color:"#ef4444"}}>▇ {tr("ชันมาก", "steep")}</span>
+                                <div className="px-0.5">
+                                    <div style={{ height: 8, borderRadius: 4, background: "linear-gradient(90deg,#1d4ed8,#38bdf8,#10b981,#f59e0b,#ef4444)" }} />
+                                    <div className="flex items-center justify-between text-[9px] text-gray-500 dark:text-gray-400 mt-0.5">
+                                        <span>{tr("ลงชัน", "steep ↓")}</span>
+                                        <span>{tr("ราบ", "flat")}</span>
+                                        <span>{tr("ขึ้นชัน", "steep ↑")}</span>
+                                    </div>
                                 </div>
                             )}
                         </div>
