@@ -384,6 +384,34 @@ async function fetchElevation(coords) {
     } catch (e) { return []; }
 }
 
+// Base map tile layers — all free, no API key.
+const TILE_LAYERS = {
+    standard:  { url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", opts: { maxZoom: 19, attribution: "&copy; OSM" } },
+    satellite: { url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", opts: { maxZoom: 19, attribution: "&copy; Esri" } },
+    terrain:   { url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", opts: { maxZoom: 17, attribution: "&copy; OpenTopoMap" } },
+};
+
+// Color a route segment by its grade (% slope): downhill blue → flat green → uphill red.
+function gradeColor(g) {
+    if (g <= -8) return "#1d4ed8";
+    if (g <= -3) return "#3b82f6";
+    if (g < 3) return "#10b981";
+    if (g < 8) return "#f59e0b";
+    return "#ef4444";
+}
+
+// Out-and-back: route out to a point ~half the target away, then mirror the path back.
+// Reuses the one-way endpoint search for the outbound leg, then reverses its geometry —
+// guarantees the return follows the exact same path, and the distance is exactly 2× the leg.
+async function generateSmoothOutBack(start, targetMeters, seed, minPoints, maxPoints) {
+    const leg = await generateSmoothOneWay(start, targetMeters / 2, seed, minPoints, maxPoints);
+    if (!leg) return null;
+    const back = leg.allCoords.slice().reverse();
+    const allCoords = leg.allCoords.concat(back.slice(1));
+    const endPt = leg.points[leg.points.length - 1];
+    return { points: [start, endPt, start], allCoords, n: 1, actual: leg.actual * 2, smooth: leg.smooth };
+}
+
 function ElevationChart({ elevations, totalDistanceM }) {
     if (!elevations || elevations.length < 2) return <div className="text-xs text-gray-400 text-center py-6">{tr("ยังไม่มีข้อมูลความสูง", "No elevation data yet")}</div>;
     const min = Math.min(...elevations), max = Math.max(...elevations);
@@ -500,6 +528,12 @@ function App() {
     const elevationDebounceRef = useRef(null);
     const lastElevatedKeyRef = useRef("");
     const generatedRouteRef = useRef(null); // {key, coords} — cached route from auto-generator
+    const tileLayerRef = useRef(null);
+    const kmMarkersRef = useRef(null);
+    const undoStack = useRef([]);   // past waypoint snapshots
+    const redoStack = useRef([]);   // undone snapshots, for redo
+    const skipHistory = useRef(false); // true when a waypoints change came from undo/redo itself
+    const prevWpRef = useRef([]);   // last committed waypoints, pushed to undo on next change
 
     const [userLocation, setUserLocation] = useState(null);
     const [waypoints, setWaypoints] = useState([]);
@@ -531,6 +565,10 @@ function App() {
     const [elevPopupOpacity, setElevPopupOpacity] = useState(0.95);
     const [elevPopupPos, setElevPopupPos] = useState(null);          // {x,y} top-left in px; null = default bottom-right
     const [elevPopupDims, setElevPopupDims] = useState({ w: 300, h: 170 });
+    const [mapLayer, setMapLayer] = useState("standard"); // standard | satellite | terrain
+    const [showKm, setShowKm] = useState(false);          // show km distance markers along the route
+    const [colorByGrade, setColorByGrade] = useState(false); // color the route line by slope steepness
+    const [histVer, setHistVer] = useState(0);            // bumps to refresh undo/redo button state
     const [toast, setToast] = useState(null);
 
     const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
@@ -539,7 +577,8 @@ function App() {
         if (mapInstanceRef.current) return;
         const map = L.map("map", { center: [13.7563, 100.5018], zoom: 14, zoomControl: false });
         L.control.zoom({ position: "topright" }).addTo(map);
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: '&copy; OSM', maxZoom: 19 }).addTo(map);
+        const base = TILE_LAYERS.standard;
+        tileLayerRef.current = L.tileLayer(base.url, base.opts).addTo(map);
         mapInstanceRef.current = map;
 
         const t1 = setTimeout(() => map.invalidateSize(), 100);
@@ -579,6 +618,15 @@ function App() {
 
     useEffect(() => {
         const map = mapInstanceRef.current;
+        if (!map || !tileLayerRef.current) return;
+        const cfg = TILE_LAYERS[mapLayer] || TILE_LAYERS.standard;
+        tileLayerRef.current.remove();
+        tileLayerRef.current = L.tileLayer(cfg.url, cfg.opts).addTo(map);
+        tileLayerRef.current.bringToBack();
+    }, [mapLayer]);
+
+    useEffect(() => {
+        const map = mapInstanceRef.current;
         if (!map) return;
         const handler = async (e) => {
             const pt = { lat: e.latlng.lat, lng: e.latlng.lng };
@@ -588,11 +636,15 @@ function App() {
                 if (generatingLoop) return;
                 setLoopStart(pt);
                 setGeneratingLoop(true);
-                const typeName = loopType === "oneway" ? tr("ไปไม่กลับ", "one-way") : tr("วงกลม", "loop");
+                const typeName = loopType === "oneway" ? tr("ไปไม่กลับ", "one-way")
+                    : loopType === "outback" ? tr("ไป-กลับทางเดิม", "out & back")
+                    : tr("วงกลม", "loop");
                 showToast(`${tr("กำลังสร้างเส้นทาง", "Creating route")} ${typeName} ${km} ${tr("กม.", "km")} ...`);
                 const seed = Math.random();
                 const result = loopType === "oneway"
                     ? await generateSmoothOneWay(pt, km * 1000, seed, loopPoints, 8)
+                    : loopType === "outback"
+                    ? await generateSmoothOutBack(pt, km * 1000, seed, loopPoints, 8)
                     : await generateSmoothLoop(pt, km * 1000, seed, loopPoints, 8);
                 setGeneratingLoop(false);
                 if (!result) { showToast(tr("สร้างเส้นทางไม่สำเร็จ", "Failed to create route")); return; }
@@ -659,7 +711,6 @@ function App() {
         });
 
         if (waypoints.length < 2) {
-            if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null; }
             setRoutedCoords([]);
             return;
         }
@@ -669,7 +720,6 @@ function App() {
         const wpKey = waypoints.map(w => `${w.lat.toFixed(5)},${w.lng.toFixed(5)}`).join("|");
         if (generatedRouteRef.current && generatedRouteRef.current.key === wpKey) {
             setRoutedCoords(generatedRouteRef.current.coords);
-            drawRouteLine(generatedRouteRef.current.coords);
             return;
         }
 
@@ -678,31 +728,109 @@ function App() {
             if (!snapToRoads) {
                 if (cancelled) return;
                 setRoutedCoords(waypoints);
-                drawRouteLine(waypoints);
                 return;
             }
             setLoadingRoute(true);
             const result = await fetchMultiWaypointRoute(waypoints);
             if (cancelled) return;
             setLoadingRoute(false);
-            if (result) {
-                setRoutedCoords(result.allCoords);
-                drawRouteLine(result.allCoords);
-            } else {
-                setRoutedCoords(waypoints);
-                drawRouteLine(waypoints);
-            }
+            setRoutedCoords(result ? result.allCoords : waypoints);
         })();
         return () => { cancelled = true; };
     }, [waypoints, snapToRoads, routeProfile]);
 
-    function drawRouteLine(coords) {
+    // Draw the route line. Plain green, or — when colorByGrade is on and elevation data exists —
+    // split into segments colored by slope. Elevations are sampled (~100 pts), so each full-res
+    // segment inherits the grade of the sampled band it falls in (keeps the line on the road).
+    useEffect(() => {
         const map = mapInstanceRef.current;
         if (!map) return;
-        if (routeLineRef.current) routeLineRef.current.remove();
-        if (coords.length < 2) return;
-        routeLineRef.current = L.polyline(coords.map(c => [c.lat, c.lng]), { color: "#10b981", weight: 5, opacity: 0.85 }).addTo(map);
-    }
+        if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null; }
+        if (routedCoords.length < 2) return;
+
+        const step = Math.max(1, Math.floor(routedCoords.length / 100));
+        const canGrade = colorByGrade && elevations.length >= 2;
+
+        if (canGrade) {
+            const last = routedCoords.length - 1;
+            const bandGrade = [];
+            for (let b = 0; b < elevations.length - 1; b++) {
+                const a = routedCoords[Math.min(b * step, last)];
+                const c = routedCoords[Math.min((b + 1) * step, last)];
+                const dx = haversine(a, c) || 1;
+                bandGrade[b] = ((elevations[b + 1] - elevations[b]) / dx) * 100;
+            }
+            const grp = L.layerGroup();
+            for (let i = 1; i < routedCoords.length; i++) {
+                const band = Math.min(Math.floor((i - 1) / step), bandGrade.length - 1);
+                L.polyline(
+                    [[routedCoords[i - 1].lat, routedCoords[i - 1].lng], [routedCoords[i].lat, routedCoords[i].lng]],
+                    { color: gradeColor(bandGrade[band] || 0), weight: 5, opacity: 0.9 }
+                ).addTo(grp);
+            }
+            grp.addTo(map);
+            routeLineRef.current = grp;
+        } else {
+            routeLineRef.current = L.polyline(
+                routedCoords.map(c => [c.lat, c.lng]),
+                { color: "#10b981", weight: 5, opacity: 0.85 }
+            ).addTo(map);
+        }
+    }, [routedCoords, colorByGrade, elevations]);
+
+    // Km distance markers along the route — small numbered dots every 1 km.
+    useEffect(() => {
+        const map = mapInstanceRef.current;
+        if (!map) return;
+        if (kmMarkersRef.current) { kmMarkersRef.current.remove(); kmMarkersRef.current = null; }
+        if (!showKm || routedCoords.length < 2) return;
+        const grp = L.layerGroup();
+        let acc = 0, nextKm = 1000;
+        for (let i = 1; i < routedCoords.length; i++) {
+            acc += haversine(routedCoords[i - 1], routedCoords[i]);
+            while (acc >= nextKm) {
+                const km = nextKm / 1000;
+                const icon = L.divIcon({
+                    html: `<div class="km-marker">${km}</div>`, className: "",
+                    iconSize: [22, 22], iconAnchor: [11, 11],
+                });
+                L.marker([routedCoords[i].lat, routedCoords[i].lng], { icon, interactive: false, zIndexOffset: -50 }).addTo(grp);
+                nextKm += 1000;
+            }
+        }
+        grp.addTo(map);
+        kmMarkersRef.current = grp;
+    }, [routedCoords, showKm]);
+
+    // Undo/redo history — record the previous waypoints snapshot on every change that isn't
+    // itself an undo/redo. Capped at 50 entries.
+    useEffect(() => {
+        if (skipHistory.current) { skipHistory.current = false; prevWpRef.current = waypoints; return; }
+        undoStack.current.push(prevWpRef.current);
+        if (undoStack.current.length > 50) undoStack.current.shift();
+        redoStack.current = [];
+        prevWpRef.current = waypoints;
+        setHistVer(v => v + 1);
+    }, [waypoints]);
+
+    const undo = () => {
+        if (!undoStack.current.length) return;
+        redoStack.current.push(waypoints);
+        const prev = undoStack.current.pop();
+        skipHistory.current = true;
+        setWaypoints(prev);
+        setHistVer(v => v + 1);
+        showToast(tr("ย้อนกลับ", "Undo"));
+    };
+    const redo = () => {
+        if (!redoStack.current.length) return;
+        undoStack.current.push(waypoints);
+        const next = redoStack.current.pop();
+        skipHistory.current = true;
+        setWaypoints(next);
+        setHistVer(v => v + 1);
+        showToast(tr("ทำซ้ำ", "Redo"));
+    };
 
     useEffect(() => {
         const map = mapInstanceRef.current;
@@ -888,7 +1016,6 @@ function App() {
         setWaypoints(prev => [...prev, { ...prev[0] }]);
         showToast(tr("เชื่อมกลับจุดเริ่มต้นแล้ว", "Connected back to start"));
     };
-    const undoWaypoint = () => setWaypoints(prev => prev.slice(0, -1));
     const clearRoute = () => {
         setWaypoints([]);
         setElevations([]);
@@ -902,10 +1029,14 @@ function App() {
         const type = typeOverride || loopType; // explicit type avoids stale state right after switching
         const km = parseFloat(customKm) || loopKm;
         setGeneratingLoop(true);
-        const typeName = type === "oneway" ? tr("ไปไม่กลับ", "one-way") : tr("วงกลม", "loop");
+        const typeName = type === "oneway" ? tr("ไปไม่กลับ", "one-way")
+            : type === "outback" ? tr("ไป-กลับทางเดิม", "out & back")
+            : tr("วงกลม", "loop");
         showToast(`${tr("กำลังสุ่มใหม่", "Regenerating")} ${typeName} ${km} ${tr("กม.", "km")} ...`);
         const result = type === "oneway"
             ? await generateSmoothOneWay(loopStart, km * 1000, Math.random(), loopPoints, 8)
+            : type === "outback"
+            ? await generateSmoothOutBack(loopStart, km * 1000, Math.random(), loopPoints, 8)
             : await generateSmoothLoop(loopStart, km * 1000, Math.random(), loopPoints, 8);
         setGeneratingLoop(false);
         if (!result) { showToast(tr("สร้างเส้นทางไม่สำเร็จ", "Failed to create route")); return; }
@@ -1029,6 +1160,13 @@ function App() {
             {/* Quick-access bar — most-used controls, always visible (scrolls horizontally on mobile) */}
             {uiVisible && (
                 <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-2 py-1.5 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap shadow-sm">
+                    <button onClick={undo} disabled={undoStack.current.length === 0}
+                        className="flex-shrink-0 w-8 h-7 rounded-full text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40"
+                        title={tr("ย้อนกลับ", "Undo")}>↶</button>
+                    <button onClick={redo} disabled={redoStack.current.length === 0}
+                        className="flex-shrink-0 w-8 h-7 rounded-full text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40"
+                        title={tr("ทำซ้ำ", "Redo")}>↷</button>
+                    <span className="flex-shrink-0 w-px h-5 bg-gray-200" />
                     <button onClick={() => setLoopMode(m => !m)}
                         className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${loopMode ? "bg-green-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200"}`}>
                         🔄 {tr("อัตโนมัติ", "Auto")}
@@ -1037,7 +1175,9 @@ function App() {
                         <>
                             <div className="flex-shrink-0 flex rounded-full overflow-hidden border border-gray-300 dark:border-gray-600">
                                 <button onClick={() => switchLoopType("loop")}
-                                    className={`px-2.5 py-1 text-xs font-medium ${loopType === "loop" ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>🔁 {tr("ไปกลับ", "Round")}</button>
+                                    className={`px-2.5 py-1 text-xs font-medium ${loopType === "loop" ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>🔁 {tr("วงกลม", "Loop")}</button>
+                                <button onClick={() => switchLoopType("outback")}
+                                    className={`px-2.5 py-1 text-xs font-medium ${loopType === "outback" ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>↩️ {tr("ไป-กลับ", "Out-back")}</button>
                                 <button onClick={() => switchLoopType("oneway")}
                                     className={`px-2.5 py-1 text-xs font-medium ${loopType === "oneway" ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>➡️ {tr("ไปไม่กลับ", "One-way")}</button>
                             </div>
@@ -1148,6 +1288,37 @@ function App() {
                             )}
                         </div>
 
+                        {/* Display options */}
+                        <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2">
+                            <div className="text-xs font-medium text-gray-800 dark:text-gray-100">🗺️ {tr("การแสดงผล", "Display")}</div>
+                            <div className="flex gap-1">
+                                {[["standard", tr("ปกติ", "Map")], ["satellite", tr("ดาวเทียม", "Satellite")], ["terrain", tr("ภูมิประเทศ", "Terrain")]].map(([k, label]) => (
+                                    <button key={k} onClick={() => setMapLayer(k)}
+                                        className={`flex-1 py-1 rounded text-[10px] font-medium ${mapLayer === k ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200"}`}>
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                            <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200">
+                                <input type="checkbox" checked={showKm} onChange={(e) => setShowKm(e.target.checked)}
+                                    className="w-4 h-4 accent-green-600" />
+                                📍 {tr("หมุดบอกระยะ กม.", "Km markers")}
+                            </label>
+                            <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200">
+                                <input type="checkbox" checked={colorByGrade} onChange={(e) => setColorByGrade(e.target.checked)}
+                                    className="w-4 h-4 accent-green-600" />
+                                🌈 {tr("เส้นไล่สีตามความชัน", "Color by grade")}
+                            </label>
+                            {colorByGrade && (
+                                <div className="flex items-center justify-between text-[9px] text-gray-500 dark:text-gray-400 px-0.5">
+                                    <span style={{color:"#1d4ed8"}}>▇ {tr("ลง", "down")}</span>
+                                    <span style={{color:"#10b981"}}>▇ {tr("ราบ", "flat")}</span>
+                                    <span style={{color:"#f59e0b"}}>▇ {tr("ชัน", "up")}</span>
+                                    <span style={{color:"#ef4444"}}>▇ {tr("ชันมาก", "steep")}</span>
+                                </div>
+                            )}
+                        </div>
+
                         {/* Waypoint editor */}
                         <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                             <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 text-sm font-medium text-gray-800 dark:text-gray-100">
@@ -1196,9 +1367,11 @@ function App() {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-1.5">
-                            <button onClick={undoWaypoint} disabled={waypoints.length === 0}
+                        <div className="grid grid-cols-3 gap-1.5">
+                            <button onClick={undo} disabled={undoStack.current.length === 0}
                                 className="py-1.5 px-2 bg-gray-100 dark:bg-gray-700 rounded text-xs font-medium text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-50">↶ {tr("ย้อน", "Undo")}</button>
+                            <button onClick={redo} disabled={redoStack.current.length === 0}
+                                className="py-1.5 px-2 bg-gray-100 dark:bg-gray-700 rounded text-xs font-medium text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-50">↷ {tr("ทำซ้ำ", "Redo")}</button>
                             <button onClick={clearRoute} disabled={waypoints.length === 0}
                                 className="py-1.5 px-2 bg-red-50 text-red-700 rounded text-xs font-medium active:bg-red-100 disabled:opacity-50">🗑️ {tr("ล้าง", "Clear")}</button>
                         </div>
