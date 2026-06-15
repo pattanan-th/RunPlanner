@@ -549,7 +549,7 @@ function App() {
     const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
 
     const [routeProfile, setRouteProfile] = useState(() => {
-        try { const p = localStorage.getItem("runplanner.profile"); return (p === "driving" || p === "trail") ? p : "foot"; } catch { return "foot"; }
+        try { return localStorage.getItem("runplanner.profile") === "driving" ? "driving" : "foot"; } catch { return "foot"; }
     });
     ROUTE_PROFILE = routeProfile; // keep module-level routing profile in sync for the API helpers
     const changeRouteProfile = (p) => {
@@ -789,9 +789,9 @@ function App() {
                 return;
             }
             setLoadingRoute(true);
-            const result = routeProfile === "trail"
-                ? await fetchTrailRoute(waypoints)
-                : await fetchMultiWaypointRoute(waypoints);
+            // Manual snap uses BRouter (hiking) so the line follows BOTH roads and trails in one —
+            // no separate trail mode. Falls back to Google road routing if BRouter is unavailable.
+            const result = await fetchTrailRoute(waypoints) || await fetchMultiWaypointRoute(waypoints);
             if (cancelled) return;
             setLoadingRoute(false);
             setRoutedCoords(result ? result.allCoords : waypoints);
@@ -1265,14 +1265,12 @@ function App() {
                     ) : (
                         <>
                             <div className="flex-shrink-0 flex rounded-full overflow-hidden border border-gray-300 dark:border-gray-600">
-                                <button onClick={() => { setSnapToRoads(true); changeRouteProfile("foot"); }}
-                                    className={`px-2.5 py-1 text-xs font-medium ${snapToRoads && routeProfile !== "trail" ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>🛣️ {tr("เกาะถนน", "Road")}</button>
-                                <button onClick={() => { setSnapToRoads(true); changeRouteProfile("trail"); }}
-                                    className={`px-2.5 py-1 text-xs font-medium ${snapToRoads && routeProfile === "trail" ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>🥾 {tr("เทรล", "Trail")}</button>
+                                <button onClick={() => setSnapToRoads(true)}
+                                    className={`px-2.5 py-1 text-xs font-medium ${snapToRoads ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>🛣️ {tr("เกาะเส้นทาง", "Snap")}</button>
                                 <button onClick={() => setSnapToRoads(false)}
                                     className={`px-2.5 py-1 text-xs font-medium ${!snapToRoads ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>✏️ {tr("ลากเส้นตรง", "Freehand")}</button>
                             </div>
-                            <span className="flex-shrink-0 text-[11px] text-gray-400 px-1">{tr("👆 แตะแผนที่", "👆 Tap map")}</span>
+                            <span className="flex-shrink-0 text-[11px] text-gray-400 px-1">{tr("👆 แตะแผนที่ (เกาะถนน+เทรล)", "👆 Tap map (roads + trails)")}</span>
                         </>
                     )}
                     {waypoints.length > 0 && (
