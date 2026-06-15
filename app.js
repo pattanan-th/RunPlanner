@@ -394,7 +394,11 @@ const TILE_LAYERS = {
     standard:  { url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", opts: { maxZoom: 19, attribution: "&copy; OSM" } },
     satellite: { url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", opts: { maxZoom: 19, attribution: "&copy; Esri" } },
     terrain:   { url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", opts: { maxZoom: 17, attribution: "&copy; OpenTopoMap" } },
+    trail:     { url: "https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png", opts: { maxZoom: 20, attribution: "&copy; CyclOSM" } },
 };
+
+// Transparent overlay of marked hiking/walking trails (Waymarked Trails) — sits on top of any base.
+const TRAIL_OVERLAY = { url: "https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png", opts: { maxZoom: 18, opacity: 0.7, attribution: "&copy; Waymarked Trails" } };
 
 // Continuous color ramp by grade (% slope): steep-down blue → flat green → steep-up red.
 // Interpolated (not bucketed) so adjacent segments blend into a smooth gradient along the route.
@@ -546,6 +550,7 @@ function App() {
     const lastElevatedKeyRef = useRef("");
     const generatedRouteRef = useRef(null); // {key, coords} — cached route from auto-generator
     const tileLayerRef = useRef(null);
+    const trailOverlayRef = useRef(null);
     const kmMarkersRef = useRef(null);
     const undoStack = useRef([]);   // past waypoint snapshots
     const redoStack = useRef([]);   // undone snapshots, for redo
@@ -582,7 +587,8 @@ function App() {
     const [elevPopupOpacity, setElevPopupOpacity] = useState(0.95);
     const [elevPopupPos, setElevPopupPos] = useState(null);          // {x,y} top-left in px; null = default bottom-right
     const [elevPopupDims, setElevPopupDims] = useState({ w: 300, h: 170 });
-    const [mapLayer, setMapLayer] = useState("standard"); // standard | satellite | terrain
+    const [mapLayer, setMapLayer] = useState("standard"); // standard | satellite | terrain | trail
+    const [showTrails, setShowTrails] = useState(false);  // Waymarked Trails hiking overlay
     const [showKm, setShowKm] = useState(false);          // show km distance markers along the route
     const [colorByGrade, setColorByGrade] = useState(false); // color the route line by slope steepness
     const [histVer, setHistVer] = useState(0);            // bumps to refresh undo/redo button state
@@ -640,7 +646,18 @@ function App() {
         tileLayerRef.current.remove();
         tileLayerRef.current = L.tileLayer(cfg.url, cfg.opts).addTo(map);
         tileLayerRef.current.bringToBack();
+        if (trailOverlayRef.current) trailOverlayRef.current.bringToFront();
     }, [mapLayer]);
+
+    // Waymarked Trails hiking overlay — transparent tiles on top of the base layer.
+    useEffect(() => {
+        const map = mapInstanceRef.current;
+        if (!map) return;
+        if (trailOverlayRef.current) { trailOverlayRef.current.remove(); trailOverlayRef.current = null; }
+        if (!showTrails) return;
+        trailOverlayRef.current = L.tileLayer(TRAIL_OVERLAY.url, TRAIL_OVERLAY.opts).addTo(map);
+        trailOverlayRef.current.bringToFront();
+    }, [showTrails]);
 
     useEffect(() => {
         const map = mapInstanceRef.current;
@@ -1317,14 +1334,19 @@ function App() {
                         {/* Display options */}
                         <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2">
                             <div className="text-xs font-medium text-gray-800 dark:text-gray-100">🗺️ {tr("การแสดงผล", "Display")}</div>
-                            <div className="flex gap-1">
-                                {[["standard", tr("ปกติ", "Map")], ["satellite", tr("ดาวเทียม", "Satellite")], ["terrain", tr("ภูมิประเทศ", "Terrain")]].map(([k, label]) => (
+                            <div className="flex flex-wrap gap-1">
+                                {[["standard", tr("ปกติ", "Map")], ["satellite", tr("ดาวเทียม", "Satellite")], ["terrain", tr("ภูมิประเทศ", "Terrain")], ["trail", tr("เทรล", "Trail")]].map(([k, label]) => (
                                     <button key={k} onClick={() => setMapLayer(k)}
-                                        className={`flex-1 py-1 rounded text-[10px] font-medium ${mapLayer === k ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200"}`}>
+                                        className={`flex-1 min-w-[44px] py-1 rounded text-[10px] font-medium ${mapLayer === k ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200"}`}>
                                         {label}
                                     </button>
                                 ))}
                             </div>
+                            <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200">
+                                <input type="checkbox" checked={showTrails} onChange={(e) => setShowTrails(e.target.checked)}
+                                    className="w-4 h-4 accent-green-600" />
+                                🥾 {tr("เส้นทางเดินป่า", "Hiking trails")}
+                            </label>
                             <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200">
                                 <input type="checkbox" checked={showKm} onChange={(e) => setShowKm(e.target.checked)}
                                     className="w-4 h-4 accent-green-600" />
