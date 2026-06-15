@@ -265,6 +265,31 @@ async function fetchTrailRoute(waypoints) {
     } catch (e) { return null; }
 }
 
+// Fetch up to 3 alternative routes for the same waypoints (BRouter alternativeidx 0..2),
+// Google-Maps style. Returns [{coords, dist, ascend}] deduped by distance.
+async function fetchRouteAlternatives(waypoints) {
+    if (waypoints.length < 2) return [];
+    const lonlats = waypoints.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join("|");
+    const out = [];
+    for (let idx = 0; idx < 3; idx++) {
+        try {
+            const url = `https://brouter.de/brouter?lonlats=${lonlats}&profile=hiking-beta&alternativeidx=${idx}&format=geojson`;
+            const res = await fetch(url);
+            if (!res.ok) continue;
+            const j = await res.json();
+            const f = j.features && j.features[0];
+            if (!f || !f.geometry) continue;
+            const coords = f.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+            const dist = parseFloat(f.properties && f.properties["track-length"]) || totalDistance(coords);
+            const ascend = parseFloat(f.properties && f.properties["filtered ascend"]) || 0;
+            out.push({ coords, dist, ascend });
+        } catch (e) {}
+    }
+    const seen = new Set(), uniq = [];
+    for (const r of out) { const k = Math.round(r.dist / 50); if (!seen.has(k)) { seen.add(k); uniq.push(r); } }
+    return uniq;
+}
+
 // Snap a single point to the nearest road by routing it to itself and reading the snapped leg start.
 async function snapToRoad(pt) {
     const svc = dirService();
@@ -570,6 +595,7 @@ function App() {
     const tileLayerRef = useRef(null);
     const trailOverlayRef = useRef(null);
     const kmMarkersRef = useRef(null);
+    const altLayerRef = useRef(null);
     const undoStack = useRef([]);   // past waypoint snapshots
     const redoStack = useRef([]);   // undone snapshots, for redo
     const skipHistory = useRef(false); // true when a waypoints change came from undo/redo itself
@@ -605,6 +631,10 @@ function App() {
     const [elevPopupOpacity, setElevPopupOpacity] = useState(0.95);
     const [elevPopupPos, setElevPopupPos] = useState(null);          // {x,y} top-left in px; null = default bottom-right
     const [elevPopupDims, setElevPopupDims] = useState({ w: 300, h: 170 });
+    const [altRoutes, setAltRoutes] = useState([]);   // alternative routes [{coords, dist, ascend}]
+    const [altOpen, setAltOpen] = useState(false);
+    const [altLoading, setAltLoading] = useState(false);
+    const [activeAltIdx, setActiveAltIdx] = useState(0);
     const [mapLayer, setMapLayer] = useState("standard"); // standard | satellite | terrain | trail
     const [showTrails, setShowTrails] = useState(false);  // Waymarked Trails hiking overlay
     const [showKm, setShowKm] = useState(false);          // show km distance markers along the route
@@ -871,6 +901,27 @@ function App() {
         kmMarkersRef.current = grp;
     }, [routedCoords, showKm]);
 
+    // Draw the non-selected alternative routes as faint gray dashed lines (Google-Maps style).
+    // The selected one is drawn by the main route effect (green/graded). Click a gray line to pick it.
+    useEffect(() => {
+        const map = mapInstanceRef.current;
+        if (!map) return;
+        if (altLayerRef.current) { altLayerRef.current.remove(); altLayerRef.current = null; }
+        if (!altOpen || altRoutes.length < 2) return;
+        const grp = L.layerGroup();
+        altRoutes.forEach((a, i) => {
+            if (i === activeAltIdx) return;
+            const pl = L.polyline(a.coords.map(c => [c.lat, c.lng]), { color: "#9ca3af", weight: 6, opacity: 0.55 });
+            pl.on("click", () => applyAlt(i));
+            pl.addTo(grp);
+        });
+        grp.addTo(map);
+        altLayerRef.current = grp;
+    }, [altOpen, altRoutes, activeAltIdx]);
+
+    // Stale alternatives clear whenever the waypoints change.
+    useEffect(() => { setAltOpen(false); setAltRoutes([]); }, [waypoints]);
+
     // Undo/redo history — record the previous waypoints snapshot on every change that isn't
     // itself an undo/redo. Capped at 50 entries.
     useEffect(() => {
@@ -1091,6 +1142,28 @@ function App() {
         setLoopStart(null);
         location.hash = "";
         showToast(tr("ล้างเส้นทางแล้ว", "Route cleared"));
+    };
+    // Apply an alternative route as the active one (cache it so the routing effect keeps it).
+    const applyAlt = (idx) => {
+        setActiveAltIdx(idx);
+        setAltRoutes(prev => {
+            const alt = prev[idx];
+            if (alt) {
+                const wpKey = waypoints.map(w => `${w.lat.toFixed(5)},${w.lng.toFixed(5)}`).join("|");
+                generatedRouteRef.current = { key: wpKey, coords: alt.coords };
+                setRoutedCoords(alt.coords);
+            }
+            return prev;
+        });
+    };
+    const showAlternatives = async () => {
+        if (waypoints.length < 2) { showToast(tr("ต้องมีอย่างน้อย 2 จุด", "Need at least 2 points")); return; }
+        setAltLoading(true); setAltOpen(true);
+        const alts = await fetchRouteAlternatives(waypoints);
+        setAltLoading(false);
+        if (alts.length < 2) { setAltOpen(false); showToast(tr("ไม่พบเส้นทางอื่น", "No alternatives found")); return; }
+        setAltRoutes(alts);
+        applyAlt(0);
     };
     const regenerateLoop = async (typeOverride) => {
         if (!loopStart) { showToast(tr("แตะที่แผนที่เพื่อเลือกจุดเริ่มต้น", "Tap the map to choose a start point")); return; }
@@ -1489,6 +1562,13 @@ function App() {
                         style={{ opacity: elevations.length < 2 ? 0.4 : 1 }}>
                         <span className="text-lg">⛰️</span>
                     </button>
+                    <button onClick={showAlternatives}
+                        className={`side-rail-btn ${altOpen ? "ring-2 ring-green-500" : ""}`}
+                        title={tr("เส้นทางอื่น", "Alternative routes")}
+                        disabled={waypoints.length < 2}
+                        style={{ opacity: waypoints.length < 2 ? 0.4 : 1 }}>
+                        <span className="text-lg">🔀</span>
+                    </button>
                 </div>
             </div>
 
@@ -1560,6 +1640,31 @@ function App() {
                         title={tr("ปรับขนาด", "Resize")}
                         className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize touch-none"
                         style={{ background: "linear-gradient(135deg, transparent 50%, #9ca3af 50%)" }} />
+                </div>
+            )}
+
+            {/* Alternative routes panel (Google-Maps style) */}
+            {altOpen && (
+                <div className="fixed left-4 bottom-24 z-40 bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden" style={{ width: 230 }}>
+                    <div className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
+                        <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">🔀 {tr("เส้นทางแนะนำ", "Routes")}</span>
+                        <button onClick={() => setAltOpen(false)}
+                            className="w-5 h-5 rounded bg-gray-200 dark:bg-gray-700 active:bg-gray-300 text-gray-600 dark:text-gray-300 text-xs">✕</button>
+                    </div>
+                    <div className="p-2 space-y-1">
+                        {altLoading ? (
+                            <div className="text-xs text-gray-400 text-center py-3">{tr("กำลังหาเส้นทาง...", "Finding routes...")}</div>
+                        ) : altRoutes.map((a, i) => (
+                            <button key={i} onClick={() => applyAlt(i)}
+                                className={`w-full text-left px-2 py-1.5 rounded text-xs ${i === activeAltIdx ? "bg-green-600 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-200 active:bg-gray-100"}`}>
+                                <div className="font-medium">{tr("เส้นทาง", "Route")} {i + 1}{i === 0 ? ` · ${tr("เร็วสุด", "best")}` : ""}</div>
+                                <div className={i === activeAltIdx ? "opacity-90" : "text-gray-500 dark:text-gray-400"}>
+                                    {fmtDistance(a.dist)} · ↑{Math.round(a.ascend)}{tr("ม.", "m")}
+                                    {paceSecPerKm > 0 ? ` · ⏱ ${fmtTime((a.dist / 1000) * paceSecPerKm)}` : ""}
+                                </div>
+                            </button>
+                        ))}
+                    </div>
                 </div>
             )}
 
