@@ -494,6 +494,12 @@ const TILE_LAYERS = {
     terrain:   { url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", opts: { maxZoom: 17, attribution: "&copy; OpenTopoMap" } },
     trail:     { url: "https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png", opts: { maxZoom: 20, attribution: "&copy; CyclOSM" } },
 };
+// Dark night map (CARTO Dark Matter) — used for the "standard" layer when dark mode is on.
+const DARK_TILES = { url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", opts: { maxZoom: 20, attribution: "&copy; CARTO" } };
+function baseTileCfg(layer, theme) {
+    if (layer === "standard" && theme === "dark") return DARK_TILES;
+    return TILE_LAYERS[layer] || TILE_LAYERS.standard;
+}
 
 // Transparent overlay of marked hiking/walking trails (Waymarked Trails) — sits on top of any base.
 const TRAIL_OVERLAY = { url: "https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png", opts: { maxZoom: 18, opacity: 0.7, attribution: "&copy; Waymarked Trails" } };
@@ -708,7 +714,7 @@ function App() {
         if (mapInstanceRef.current) return;
         const map = L.map("map", { center: [13.7563, 100.5018], zoom: 14, zoomControl: false });
         L.control.zoom({ position: "topright" }).addTo(map);
-        const base = TILE_LAYERS.standard;
+        const base = baseTileCfg("standard", theme);
         tileLayerRef.current = L.tileLayer(base.url, base.opts).addTo(map);
         mapInstanceRef.current = map;
 
@@ -750,12 +756,12 @@ function App() {
     useEffect(() => {
         const map = mapInstanceRef.current;
         if (!map || !tileLayerRef.current) return;
-        const cfg = TILE_LAYERS[mapLayer] || TILE_LAYERS.standard;
+        const cfg = baseTileCfg(mapLayer, theme);
         tileLayerRef.current.remove();
         tileLayerRef.current = L.tileLayer(cfg.url, cfg.opts).addTo(map);
         tileLayerRef.current.bringToBack();
         if (trailOverlayRef.current) trailOverlayRef.current.bringToFront();
-    }, [mapLayer]);
+    }, [mapLayer, theme]);
 
     // Waymarked Trails hiking overlay — transparent tiles on top of the base layer.
     useEffect(() => {
