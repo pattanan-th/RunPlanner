@@ -1679,7 +1679,11 @@ function App() {
                 <div className="flex flex-col gap-2">
                     <button onClick={toggleLang} className="side-rail-btn"
                         title={tr("ภาษา: ไทย (แตะเพื่อเปลี่ยนเป็นอังกฤษ)", "Language: English (tap to switch to Thai)")}>
-                        <span className="text-base font-bold text-green-700">{lang === "en" ? "E" : "T"}</span>
+                        <span style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.3px" }}>
+                            <span style={{ color: lang === "th" ? (theme === "dark" ? "#e5e7eb" : "#1f2937") : "#b4b2a9" }}>TH</span>
+                            <span style={{ color: "#b4b2a9" }}>/</span>
+                            <span style={{ color: lang === "en" ? (theme === "dark" ? "#e5e7eb" : "#1f2937") : "#b4b2a9" }}>EN</span>
+                        </span>
                     </button>
                     <button onClick={toggleTheme} className="side-rail-btn"
                         title={theme === "dark" ? tr("เปลี่ยนเป็นโหมดสว่าง", "Switch to light mode") : tr("เปลี่ยนเป็นโหมดมืด", "Switch to dark mode")}>
