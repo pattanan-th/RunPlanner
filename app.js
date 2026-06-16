@@ -760,6 +760,16 @@ function App() {
         tileLayerRef.current.remove();
         tileLayerRef.current = L.tileLayer(cfg.url, cfg.opts).addTo(map);
         tileLayerRef.current.bringToBack();
+        // Night look for layers without a native dark version: invert the drawn maps
+        // (terrain/trail) to dark; dim satellite (inverting real photos looks wrong);
+        // standard already uses dark tiles so no filter.
+        let filter = "none";
+        if (theme === "dark") {
+            if (mapLayer === "satellite") filter = "brightness(0.6)";
+            else if (mapLayer === "terrain" || mapLayer === "trail") filter = "invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9)";
+        }
+        const cont = tileLayerRef.current.getContainer && tileLayerRef.current.getContainer();
+        if (cont) cont.style.filter = filter;
         if (trailOverlayRef.current) trailOverlayRef.current.bringToFront();
     }, [mapLayer, theme]);
 
