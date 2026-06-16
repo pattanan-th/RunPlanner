@@ -1686,7 +1686,10 @@ function App() {
                         <span className="text-lg">{theme === "dark" ? "☀️" : "🌙"}</span>
                     </button>
                     <button onClick={() => setUiVisible(v => !v)} className="side-rail-btn" title={uiVisible ? tr("ซ่อน UI", "Hide UI") : tr("แสดง UI", "Show UI")}>
-                        <span className="text-lg">{uiVisible ? "🙈" : "👁️"}</span>
+                        <span style={{ position: "relative", display: "inline-flex", fontSize: "14px", fontWeight: 700, letterSpacing: "0.5px", color: uiVisible ? "#9ca3af" : (theme === "dark" ? "#e5e7eb" : "#1f2937") }}>
+                            UI
+                            {uiVisible && <span style={{ position: "absolute", top: "50%", left: "-4px", right: "-4px", height: "2px", borderRadius: "2px", background: "#e24b4a", transform: "translateY(-50%) rotate(-25deg)" }} />}
+                        </span>
                     </button>
                     <button onClick={centerOnMe} className="side-rail-btn" title={tr("ตำแหน่งฉัน", "My location")}>
                         <span className="text-lg">📍</span>
