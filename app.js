@@ -1699,11 +1699,17 @@ function App() {
                     <button onClick={exportGpx} disabled={routedCoords.length < 2}
                         className="side-rail-btn" title={tr("ดาวน์โหลด GPX", "Download GPX")}
                         style={{ opacity: routedCoords.length < 2 ? 0.4 : 1 }}>
-                        <span className="text-lg">📥</span>
+                        <span className="flex flex-col items-center justify-center leading-none" style={{ gap: "1px" }}>
+                            <span style={{ fontSize: "8px", fontWeight: 700, color: "#1f6feb", letterSpacing: "0.3px" }}>GPX</span>
+                            <svg viewBox="0 0 24 24" width="17" height="17"><path d="M12 21 L4 12 L9 12 L9 4 L15 4 L15 12 L20 12 Z" fill="#1f6feb" /></svg>
+                        </span>
                     </button>
                     <button onClick={() => fileInputRef.current && fileInputRef.current.click()}
                         className="side-rail-btn" title={tr("นำเข้า GPX", "Import GPX")}>
-                        <span className="text-lg">📤</span>
+                        <span className="flex flex-col items-center justify-center leading-none" style={{ gap: "1px" }}>
+                            <svg viewBox="0 0 24 24" width="17" height="17"><path d="M12 3 L20 12 L15 12 L15 20 L9 20 L9 12 L4 12 Z" fill="#00a000" /></svg>
+                            <span style={{ fontSize: "8px", fontWeight: 700, color: "#00a000", letterSpacing: "0.3px" }}>GPX</span>
+                        </span>
                     </button>
                     <input ref={fileInputRef} type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml"
                         className="hidden"
