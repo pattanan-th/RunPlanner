@@ -1379,7 +1379,7 @@ function App() {
     };
 
     return (
-        <div className="flex flex-col h-full app-bg">
+        <div className="flex flex-col h-full app-bg" style={{ paddingTop: "env(safe-area-inset-top)" }}>
             {/* Header */}
             {uiVisible && (
                 <header className="flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 shadow-sm">
@@ -1476,6 +1476,36 @@ function App() {
                         {/* Mobile: close drawer */}
                         <button onClick={() => setPanelOpen(false)}
                             className="md:hidden self-end w-8 h-8 -mt-1 -mr-1 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 active:bg-gray-200">✕</button>
+
+                        {/* Settings & files row (moved off the floating rail to declutter mobile) */}
+                        <div className="flex items-center justify-between gap-1">
+                            <button onClick={toggleLang} title={tr("สลับภาษา", "Toggle language")}
+                                className="h-9 px-2 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+                                <span style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.3px" }}>
+                                    <span style={{ color: lang === "th" ? (theme === "dark" ? "#e5e7eb" : "#1f2937") : "#b4b2a9" }}>TH</span>
+                                    <span style={{ color: "#b4b2a9" }}>/</span>
+                                    <span style={{ color: lang === "en" ? (theme === "dark" ? "#e5e7eb" : "#1f2937") : "#b4b2a9" }}>EN</span>
+                                </span>
+                            </button>
+                            <button onClick={toggleTheme} title={theme === "dark" ? tr("โหมดสว่าง", "Light mode") : tr("โหมดมืด", "Dark mode")}
+                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg">{theme === "dark" ? "☀️" : "🌙"}</button>
+                            <button onClick={shareRoute} disabled={waypoints.length < 2} title={tr("แชร์ลิงก์", "Share link")}
+                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg disabled:opacity-40">🔗</button>
+                            <button onClick={exportGpx} disabled={routedCoords.length < 2} title={tr("ดาวน์โหลด GPX", "Download GPX")}
+                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex flex-col items-center justify-center leading-none disabled:opacity-40">
+                                <span style={{ fontSize: "7px", fontWeight: 700, color: "#1f6feb" }}>GPX</span>
+                                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 21 L4 12 L9 12 L9 4 L15 4 L15 12 L20 12 Z" fill="#1f6feb" /></svg>
+                            </button>
+                            <button onClick={() => fileInputRef.current && fileInputRef.current.click()} title={tr("นำเข้า GPX", "Import GPX")}
+                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex flex-col items-center justify-center leading-none">
+                                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 3 L20 12 L15 12 L15 20 L9 20 L9 12 L4 12 Z" fill="#00a000" /></svg>
+                                <span style={{ fontSize: "7px", fontWeight: 700, color: "#00a000" }}>GPX</span>
+                            </button>
+                            <input ref={fileInputRef} type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml"
+                                className="hidden"
+                                onChange={(e) => { importGpx(e.target.files[0]); e.target.value = ""; }} />
+                        </div>
+
                         {/* Loop generator */}
                         <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
                             <label className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-100 cursor-pointer">
@@ -1693,18 +1723,6 @@ function App() {
                     <div id="map"></div>
                 </div>
                 <div className="flex flex-col gap-2">
-                    <button onClick={toggleLang} className="side-rail-btn"
-                        title={tr("ภาษา: ไทย (แตะเพื่อเปลี่ยนเป็นอังกฤษ)", "Language: English (tap to switch to Thai)")}>
-                        <span style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.3px" }}>
-                            <span style={{ color: lang === "th" ? (theme === "dark" ? "#e5e7eb" : "#1f2937") : "#b4b2a9" }}>TH</span>
-                            <span style={{ color: "#b4b2a9" }}>/</span>
-                            <span style={{ color: lang === "en" ? (theme === "dark" ? "#e5e7eb" : "#1f2937") : "#b4b2a9" }}>EN</span>
-                        </span>
-                    </button>
-                    <button onClick={toggleTheme} className="side-rail-btn"
-                        title={theme === "dark" ? tr("เปลี่ยนเป็นโหมดสว่าง", "Switch to light mode") : tr("เปลี่ยนเป็นโหมดมืด", "Switch to dark mode")}>
-                        <span className="text-lg">{theme === "dark" ? "☀️" : "🌙"}</span>
-                    </button>
                     <button onClick={() => setUiVisible(v => !v)} className="side-rail-btn" title={uiVisible ? tr("ซ่อน UI", "Hide UI") : tr("แสดง UI", "Show UI")}>
                         <span style={{ position: "relative", display: "inline-flex", fontSize: "14px", fontWeight: 700, letterSpacing: "0.5px", color: uiVisible ? "#9ca3af" : (theme === "dark" ? "#e5e7eb" : "#1f2937") }}>
                             UI
@@ -1714,29 +1732,6 @@ function App() {
                     <button onClick={centerOnMe} className="side-rail-btn" title={tr("ตำแหน่งฉัน", "My location")}>
                         <span className="text-lg">📍</span>
                     </button>
-                    <button onClick={shareRoute} disabled={waypoints.length < 2}
-                        className="side-rail-btn" title={tr("แชร์ลิงก์", "Share link")}
-                        style={{ opacity: waypoints.length < 2 ? 0.4 : 1 }}>
-                        <span className="text-lg">🔗</span>
-                    </button>
-                    <button onClick={exportGpx} disabled={routedCoords.length < 2}
-                        className="side-rail-btn" title={tr("ดาวน์โหลด GPX", "Download GPX")}
-                        style={{ opacity: routedCoords.length < 2 ? 0.4 : 1 }}>
-                        <span className="flex flex-col items-center justify-center leading-none" style={{ gap: "1px" }}>
-                            <span style={{ fontSize: "8px", fontWeight: 700, color: "#1f6feb", letterSpacing: "0.3px" }}>GPX</span>
-                            <svg viewBox="0 0 24 24" width="17" height="17"><path d="M12 21 L4 12 L9 12 L9 4 L15 4 L15 12 L20 12 Z" fill="#1f6feb" /></svg>
-                        </span>
-                    </button>
-                    <button onClick={() => fileInputRef.current && fileInputRef.current.click()}
-                        className="side-rail-btn" title={tr("นำเข้า GPX", "Import GPX")}>
-                        <span className="flex flex-col items-center justify-center leading-none" style={{ gap: "1px" }}>
-                            <svg viewBox="0 0 24 24" width="17" height="17"><path d="M12 3 L20 12 L15 12 L15 20 L9 20 L9 12 L4 12 Z" fill="#00a000" /></svg>
-                            <span style={{ fontSize: "8px", fontWeight: 700, color: "#00a000", letterSpacing: "0.3px" }}>GPX</span>
-                        </span>
-                    </button>
-                    <input ref={fileInputRef} type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml"
-                        className="hidden"
-                        onChange={(e) => { importGpx(e.target.files[0]); e.target.value = ""; }} />
                     <button onClick={() => setElevPopupOpen(o => !o)}
                         className={`side-rail-btn ${elevPopupOpen ? "ring-2 ring-green-500" : ""}`}
                         title={tr("โปรไฟล์ความชัน", "Elevation profile")}
