@@ -162,6 +162,19 @@ ${pts}
   </trkseg></trk>
 </gpx>`;
 }
+// Parse a GPX file's coordinates — track points first, then route points, then waypoints.
+function parseGpx(text) {
+    try {
+        const doc = new DOMParser().parseFromString(text, "application/xml");
+        if (doc.querySelector("parsererror")) return [];
+        let nodes = [...doc.getElementsByTagName("trkpt")];
+        if (nodes.length === 0) nodes = [...doc.getElementsByTagName("rtept")];
+        if (nodes.length === 0) nodes = [...doc.getElementsByTagName("wpt")];
+        return nodes
+            .map(n => ({ lat: parseFloat(n.getAttribute("lat")), lng: parseFloat(n.getAttribute("lon")) }))
+            .filter(p => isFinite(p.lat) && isFinite(p.lng));
+    } catch (e) { return []; }
+}
 function downloadGpx(coords, name) {
     const blob = new Blob([buildGpx(coords, name)], { type: "application/gpx+xml" });
     const url = URL.createObjectURL(blob);
@@ -638,6 +651,7 @@ function App() {
     const trailOverlayRef = useRef(null);
     const kmMarkersRef = useRef(null);
     const altLayerRef = useRef(null);
+    const fileInputRef = useRef(null);
     const undoStack = useRef([]);   // past waypoint snapshots
     const redoStack = useRef([]);   // undone snapshots, for redo
     const skipHistory = useRef(false); // true when a waypoints change came from undo/redo itself
@@ -1270,6 +1284,26 @@ function App() {
         downloadGpx(routedCoords, defaultRouteName());
         showToast(tr("ดาวน์โหลด .gpx แล้ว", "Downloaded .gpx"));
     };
+    // Import a GPX file: parse its track, downsample to keep the editable marker count sane,
+    // and load it as a freehand route (line follows the imported track, every point draggable).
+    const importGpx = (file) => {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            const coords = parseGpx(reader.result);
+            if (coords.length < 2) { showToast(tr("ไฟล์ GPX ไม่มีเส้นทาง", "No track found in GPX")); return; }
+            let wp = coords;
+            if (wp.length > 80) wp = douglasPeucker(coords, 15);
+            if (wp.length > 200) wp = douglasPeucker(coords, 40);
+            generatedRouteRef.current = null;
+            setSnapToRoads(false);
+            setWaypoints(wp);
+            const map = mapInstanceRef.current;
+            if (map) map.fitBounds(coords.map(c => [c.lat, c.lng]), { padding: [40, 40] });
+            showToast(`${tr("นำเข้า GPX แล้ว", "Imported GPX")} (${wp.length} ${tr("จุด", "pts")})`);
+        };
+        reader.readAsText(file);
+    };
     const centerOnMe = () => {
         if (!navigator.geolocation) {
             showToast(tr("เบราว์เซอร์นี้ไม่รองรับ GPS", "Browser doesn't support GPS"));
@@ -1667,6 +1701,13 @@ function App() {
                         style={{ opacity: routedCoords.length < 2 ? 0.4 : 1 }}>
                         <span className="text-lg">📥</span>
                     </button>
+                    <button onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                        className="side-rail-btn" title={tr("นำเข้า GPX", "Import GPX")}>
+                        <span className="text-lg">📤</span>
+                    </button>
+                    <input ref={fileInputRef} type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml"
+                        className="hidden"
+                        onChange={(e) => { importGpx(e.target.files[0]); e.target.value = ""; }} />
                     <button onClick={() => setElevPopupOpen(o => !o)}
                         className={`side-rail-btn ${elevPopupOpen ? "ring-2 ring-green-500" : ""}`}
                         title={tr("โปรไฟล์ความชัน", "Elevation profile")}
