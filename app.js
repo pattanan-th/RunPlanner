@@ -494,10 +494,11 @@ const TILE_LAYERS = {
     terrain:   { url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", opts: { maxZoom: 17, attribution: "&copy; OpenTopoMap" } },
     trail:     { url: "https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png", opts: { maxZoom: 20, attribution: "&copy; CyclOSM" } },
 };
-// Dark night map (CARTO Dark Matter) — used for the "standard" layer when dark mode is on.
+// Monotone CARTO basemaps for the "standard" layer: Positron (light) / Dark Matter (dark).
 const DARK_TILES = { url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", opts: { maxZoom: 20, attribution: "&copy; CARTO" } };
+const LIGHT_TILES = { url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png", opts: { maxZoom: 20, attribution: "&copy; CARTO" } };
 function baseTileCfg(layer, theme) {
-    if (layer === "standard" && theme === "dark") return DARK_TILES;
+    if (layer === "standard") return theme === "dark" ? DARK_TILES : LIGHT_TILES;
     return TILE_LAYERS[layer] || TILE_LAYERS.standard;
 }
 
