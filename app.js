@@ -496,7 +496,10 @@ const TILE_LAYERS = {
 };
 // Monotone CARTO basemaps for the "standard" layer: Positron (light) / Dark Matter (dark).
 const DARK_TILES = { url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", opts: { maxZoom: 20, attribution: "&copy; CARTO" } };
-const LIGHT_TILES = { url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png", opts: { maxZoom: 20, attribution: "&copy; CARTO" } };
+// Light "standard" = OSM standard. Unlike the minimal CARTO styles (Positron/Voyager) its road
+// lines and labels are genuinely dark, so grayscaling it gives a true monotone map whose lines
+// stay sharp instead of washing out to near-white.
+const LIGHT_TILES = { url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", opts: { maxZoom: 19, attribution: "&copy; OpenStreetMap" } };
 function baseTileCfg(layer, theme) {
     if (layer === "standard") return theme === "dark" ? DARK_TILES : LIGHT_TILES;
     return TILE_LAYERS[layer] || TILE_LAYERS.standard;
@@ -770,7 +773,7 @@ function App() {
             else if (mapLayer === "terrain" || mapLayer === "trail") filter = "invert(1) hue-rotate(180deg) brightness(1.85) contrast(0.9)";
             else filter = "brightness(2.5)"; // standard = CARTO Dark Matter, +50% brighter so streets are clearly visible
         } else if (mapLayer === "standard") {
-            filter = "grayscale(1) contrast(1.05)"; // Voyager → monotone, but keep its clear road contrast
+            filter = "grayscale(1) contrast(1.1) brightness(0.97)"; // OSM → monotone, slightly punchier so dark roads/labels read clearly
         }
         const cont = tileLayerRef.current.getContainer && tileLayerRef.current.getContainer();
         if (cont) cont.style.filter = filter;
