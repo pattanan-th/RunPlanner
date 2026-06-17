@@ -1380,7 +1380,7 @@ function App() {
     };
 
     return (
-        <div className="flex flex-col h-full app-bg" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+        <div className="flex flex-col app-bg" style={{ position: "fixed", inset: 0, paddingTop: "env(safe-area-inset-top)" }}>
             {/* Header */}
             {uiVisible && (
                 <header className="flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 shadow-sm">
