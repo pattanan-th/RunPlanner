@@ -1414,8 +1414,8 @@ function App() {
                                 onChange={(e) => setPaceMin(e.target.value === "" ? "" : Math.max(0, Math.min(99, parseInt(e.target.value) || 0)))}
                                 className="w-11 px-1 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded text-center bg-white dark:bg-gray-800" />
                             <span className="font-bold text-gray-700 dark:text-gray-200">:</span>
-                            <input type="number" min="0" max="99" value={paceSec}
-                                onChange={(e) => setPaceSec(e.target.value === "" ? "" : Math.max(0, Math.min(99, parseInt(e.target.value) || 0)))}
+                            <input type="number" min="0" max="59" value={paceSec}
+                                onChange={(e) => setPaceSec(e.target.value === "" ? "" : Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
                                 className="w-11 px-1 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded text-center bg-white dark:bg-gray-800" />
                             <span className="text-[10px] text-gray-500 dark:text-gray-400 ml-0.5">/{tr("กม.", "km")}</span>
                         </div>
