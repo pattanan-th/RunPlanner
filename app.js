@@ -769,8 +769,6 @@ function App() {
             if (mapLayer === "satellite") filter = "brightness(1.1)";
             else if (mapLayer === "terrain" || mapLayer === "trail") filter = "invert(1) hue-rotate(180deg) brightness(1.85) contrast(0.9)";
             else filter = "brightness(2.5)"; // standard = CARTO Dark Matter, +50% brighter so streets are clearly visible
-        } else if (mapLayer === "standard") {
-            filter = "brightness(0.8)"; // Positron is quite bright — dim ~20%
         }
         const cont = tileLayerRef.current.getContainer && tileLayerRef.current.getContainer();
         if (cont) cont.style.filter = filter;
@@ -953,11 +951,11 @@ function App() {
             grp.addTo(map);
             routeLineRef.current = grp;
         } else {
-            // Two lines: a dark casing (edge) under a bright green line on top.
+            // Two lines: a dark casing (edge) under a deep green line on top.
             const grp = L.layerGroup();
             const latlngs = routedCoords.map(c => [c.lat, c.lng]);
-            L.polyline(latlngs, { color: "#006600", weight: 8, opacity: 0.9 }).addTo(grp);
-            L.polyline(latlngs, { color: "#00CC00", weight: 4, opacity: 1 }).addTo(grp);
+            L.polyline(latlngs, { color: "#003b00", weight: 8, opacity: 0.95 }).addTo(grp);
+            L.polyline(latlngs, { color: "#008a00", weight: 5, opacity: 1 }).addTo(grp);
             grp.addTo(map);
             routeLineRef.current = grp;
         }
