@@ -1589,18 +1589,13 @@ function App() {
                         <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2">
                             <div className="text-xs font-medium text-gray-800 dark:text-gray-100">🗺️ {tr("การแสดงผล", "Display")}</div>
                             <div className="flex flex-wrap gap-1">
-                                {[["standard", tr("ปกติ", "Map")], ["satellite", tr("ดาวเทียม", "Satellite")], ["terrain", tr("ภูมิประเทศ", "Terrain")], ["trail", tr("เทรล", "Trail")]].map(([k, label]) => (
+                                {[["standard", tr("ปกติ", "Map")], ["satellite", tr("ดาวเทียม", "Satellite")], ["trail", tr("เทรล", "Trail")]].map(([k, label]) => (
                                     <button key={k} onClick={() => setMapLayer(k)}
                                         className={`flex-1 min-w-[44px] py-1 rounded text-[10px] font-medium ${mapLayer === k ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200"}`}>
                                         {label}
                                     </button>
                                 ))}
                             </div>
-                            <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200">
-                                <input type="checkbox" checked={showTrails} onChange={(e) => setShowTrails(e.target.checked)}
-                                    className="w-4 h-4 accent-green-600" />
-                                🥾 {tr("เส้นทางเดินป่า", "Hiking trails")}
-                            </label>
                             <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200">
                                 <input type="checkbox" checked={showKm} onChange={(e) => setShowKm(e.target.checked)}
                                     className="w-4 h-4 accent-green-600" />
