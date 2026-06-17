@@ -747,7 +747,6 @@ function App() {
 
     const [uiVisible, setUiVisible] = useState(true);
     const [panelOpen, setPanelOpen] = useState(false); // mobile drawer (left panel) open/closed; desktop always shows inline
-    const [editorCollapsed, setEditorCollapsed] = useState(false);
     const [toolsCollapsed, setToolsCollapsed] = useState(false);
     const [altCollapsed, setAltCollapsed] = useState(false);
     const [elevCollapsed, setElevCollapsed] = useState(false);
@@ -1159,15 +1158,6 @@ function App() {
         return () => { if (elevationDebounceRef.current) clearTimeout(elevationDebounceRef.current); };
     }, [routedCoords]);
 
-    const editableWps = useMemo(() => {
-        if (waypoints.length > 1
-            && waypoints[0].lat === waypoints[waypoints.length - 1].lat
-            && waypoints[0].lng === waypoints[waypoints.length - 1].lng) {
-            return waypoints.slice(0, -1);
-        }
-        return waypoints;
-    }, [waypoints]);
-
     const isClosedLoopWp = () =>
         waypoints.length > 1
         && waypoints[0].lat === waypoints[waypoints.length - 1].lat
@@ -1206,51 +1196,6 @@ function App() {
             return prev.slice(0, -1);
         });
         showToast(tr("ลบจุดสุดท้ายแล้ว", "Removed last point"));
-    };
-    const moveWaypoint = (i, dir) => {
-        setWaypoints(prev => {
-            const closed = prev.length > 1
-                && prev[0].lat === prev[prev.length - 1].lat
-                && prev[0].lng === prev[prev.length - 1].lng;
-            const list = closed ? prev.slice(0, -1) : prev.slice();
-            const j = i + dir;
-            if (j < 0 || j >= list.length) return prev;
-            [list[i], list[j]] = [list[j], list[i]];
-            if (closed) list.push(list[0]);
-            return list;
-        });
-    };
-    const deleteWaypointAt = (i) => {
-        setWaypoints(prev => {
-            const closed = prev.length > 1
-                && prev[0].lat === prev[prev.length - 1].lat
-                && prev[0].lng === prev[prev.length - 1].lng;
-            const list = closed ? prev.slice(0, -1) : prev.slice();
-            list.splice(i, 1);
-            if (closed && list.length > 0) list.push(list[0]);
-            return list;
-        });
-        showToast(tr("ลบจุดแล้ว", "Point deleted"));
-    };
-    const insertAfter = (i) => {
-        setWaypoints(prev => {
-            if (prev.length === 0) return prev;
-            const next = i + 1 < prev.length ? prev[i + 1] : prev[i];
-            const newPt = { lat: (prev[i].lat + next.lat) / 2, lng: (prev[i].lng + next.lng) / 2 };
-            const list = prev.slice();
-            list.splice(i + 1, 0, newPt);
-            return list;
-        });
-        showToast(tr("แทรกจุดกลางแล้ว", "Inserted midpoint"));
-    };
-    const updateWaypointCoord = (i, key, val) => {
-        const n = parseFloat(val);
-        if (isNaN(n)) return;
-        setWaypoints(prev => {
-            const next = prev.slice();
-            next[i] = { ...next[i], [key]: n };
-            return next;
-        });
     };
     const reverseRoute = () => {
         if (waypoints.length < 2) { showToast(tr("ต้องมีอย่างน้อย 2 จุด", "Need at least 2 points")); return; }
@@ -1732,38 +1677,7 @@ function App() {
                             )}
                         </div>
 
-                        {/* Waypoint editor */}
-                        <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                            <button onClick={() => setEditorCollapsed(c => !c)}
-                                className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 text-sm font-medium text-gray-800 dark:text-gray-100">
-                                <span>✏️ {tr("แก้ไขจุดผ่าน", "Edit waypoints")} ({editableWps.length})</span>
-                                <span className="text-gray-400 text-xs">{editorCollapsed ? "▸" : "▾"}</span>
-                            </button>
-                            {!editorCollapsed && (
-                            <div className="p-2 space-y-2 bg-white dark:bg-gray-900">
-                                {editableWps.length === 0 ? (
-                                    <div className="text-[10px] text-gray-400 text-center py-2">{tr("ยังไม่มีจุดผ่าน", "No waypoints yet")}</div>
-                                ) : (
-                                    <div className="space-y-1">
-                                        {editableWps.map((wp, i) => (
-                                            <div key={i} className="flex items-center gap-1 bg-gray-50 dark:bg-gray-800 rounded px-2 py-1.5 text-xs">
-                                                <span className="font-bold text-gray-700 dark:text-gray-200 w-5">{i + 1}</span>
-                                                <span className="flex-1 text-gray-400">{tr("จุดที่", "Point")} {i + 1}</span>
-                                                <button onClick={() => moveWaypoint(i, -1)} disabled={i === 0}
-                                                    className="px-1.5 py-0.5 text-sm text-gray-500 dark:text-gray-400 disabled:opacity-30">↑</button>
-                                                <button onClick={() => moveWaypoint(i, 1)} disabled={i === editableWps.length - 1}
-                                                    className="px-1.5 py-0.5 text-sm text-gray-500 dark:text-gray-400 disabled:opacity-30">↓</button>
-                                                <button onClick={() => insertAfter(i)}
-                                                    className="px-1.5 py-0.5 text-sm text-green-600">＋</button>
-                                                <button onClick={() => deleteWaypointAt(i)}
-                                                    className="px-1.5 py-0.5 text-sm text-red-500">×</button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                            )}
-                        </div>
+                        {/* (Waypoint editor removed — rarely used; waypoints are edited directly on the map) */}
 
                         {/* Alternative routes (embedded, always available with ≥2 points) */}
                         {waypoints.length >= 2 && (
