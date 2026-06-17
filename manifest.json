@@ -1,6 +1,6 @@
 {
-  "name": "RunPlanner - วางแผนเส้นทางวิ่ง",
-  "short_name": "RunPlanner",
+  "name": "RouteWing - วางแผนเส้นทางวิ่ง",
+  "short_name": "RouteWing",
   "description": "วางแผน บันทึก และติดตามเส้นทางวิ่งของคุณ",
   "start_url": "./index.html",
   "scope": "./",

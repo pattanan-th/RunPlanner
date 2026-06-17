@@ -765,9 +765,9 @@ function App() {
         // drawn maps (terrain/trail) with a brightness boost; only lightly dim satellite.
         let filter = "none";
         if (theme === "dark") {
-            if (mapLayer === "satellite") filter = "brightness(0.85)";
-            else if (mapLayer === "terrain" || mapLayer === "trail") filter = "invert(1) hue-rotate(180deg) brightness(1.25) contrast(0.9)";
-            else filter = "brightness(1.7)"; // standard = CARTO Dark Matter, brighten so streets are visible
+            if (mapLayer === "satellite") filter = "brightness(1.1)";
+            else if (mapLayer === "terrain" || mapLayer === "trail") filter = "invert(1) hue-rotate(180deg) brightness(1.85) contrast(0.9)";
+            else filter = "brightness(2.5)"; // standard = CARTO Dark Matter, +50% brighter so streets are clearly visible
         }
         const cont = tileLayerRef.current.getContainer && tileLayerRef.current.getContainer();
         if (cont) cont.style.filter = filter;
@@ -1381,23 +1381,44 @@ function App() {
 
     return (
         <div className="flex flex-col app-bg" style={{ position: "fixed", inset: 0, paddingTop: "env(safe-area-inset-top)" }}>
-            {/* Header */}
+            {/* Header — brand + prominent stats (distance, total time) + pace input */}
             {uiVisible && (
-                <header className="flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 shadow-sm">
-                    <div className="flex items-center gap-2">
+                <header className="bg-white dark:bg-gray-900 shadow-sm px-4 py-2">
+                    <div className="flex items-center gap-2 mb-1.5">
                         <div className="text-2xl">🏃</div>
-                        <div>
-                            <div className="font-bold text-gray-800 dark:text-gray-100 leading-tight text-sm">RunPlanner</div>
+                        <div className="flex-1">
+                            <div className="font-bold text-gray-800 dark:text-gray-100 leading-tight text-sm">RouteWing</div>
                             <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">{tr("วางแผนเส้นทางวิ่ง", "Plan your running route")}</div>
                         </div>
                     </div>
-                    <div className="text-xs text-gray-600 dark:text-gray-300">
-                        {plannedDistance > 0 && (
-                            <span><b className="text-green-700">{fmtDistance(plannedDistance)}</b>
-                                {(gain > 0 || loss > 0) && <span> · <span className="text-orange-600">↑{Math.round(gain)}</span>·<span className="text-blue-600">↓{Math.round(loss)}</span>{tr("ม.", "m")}</span>}
-                                {estimatedSeconds > 0 && <span> · ⏱ {fmtTime(estimatedSeconds)}</span>}
-                            </span>
-                        )}
+                    <div className="flex items-end justify-between gap-3 flex-wrap">
+                        <div className="flex items-end gap-4">
+                            <div>
+                                <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-none">{tr("ระยะทาง", "Distance")}</div>
+                                <div className="text-2xl font-bold text-green-600 leading-tight">{loadingRoute ? "..." : fmtDistance(plannedDistance)}</div>
+                            </div>
+                            <div>
+                                <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-none">{tr("เวลารวม", "Total time")}</div>
+                                <div className="text-2xl font-bold text-purple-600 leading-tight">{estimatedSeconds > 0 ? fmtTime(estimatedSeconds) : "–"}</div>
+                            </div>
+                            {(gain > 0 || loss > 0) && (
+                                <div>
+                                    <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-none">{tr("ความชัน", "Elev.")}</div>
+                                    <div className="text-sm font-semibold leading-tight"><span className="text-orange-600">↑{Math.round(gain)}</span> <span className="text-blue-600">↓{Math.round(loss)}</span></div>
+                                </div>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-gray-500 dark:text-gray-400 mr-1">Pace</span>
+                            <input type="number" min="3" max="15" value={paceMin}
+                                onChange={(e) => setPaceMin(Math.max(3, Math.min(15, parseInt(e.target.value) || 6)))}
+                                className="w-11 px-1 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded text-center bg-white dark:bg-gray-800" />
+                            <span className="font-bold text-gray-700 dark:text-gray-200">:</span>
+                            <input type="number" min="0" max="59" value={paceSec}
+                                onChange={(e) => setPaceSec(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                                className="w-11 px-1 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded text-center bg-white dark:bg-gray-800" />
+                            <span className="text-[10px] text-gray-500 dark:text-gray-400 ml-0.5">/{tr("กม.", "km")}</span>
+                        </div>
                     </div>
                 </header>
             )}
@@ -1406,11 +1427,9 @@ function App() {
             {uiVisible && (
                 <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-2 py-1.5 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap shadow-sm">
                     <button onClick={undo} disabled={undoStack.current.length === 0}
-                        className="flex-shrink-0 w-8 h-7 rounded-full text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40"
-                        title={tr("ย้อนกลับ", "Undo")}>↶</button>
+                        className="flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40">{tr("ย้อน", "Undo")}</button>
                     <button onClick={redo} disabled={redoStack.current.length === 0}
-                        className="flex-shrink-0 w-8 h-7 rounded-full text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40"
-                        title={tr("ทำซ้ำ", "Redo")}>↷</button>
+                        className="flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40">{tr("ทำซ้ำ", "Redo")}</button>
                     <span className="flex-shrink-0 w-px h-5 bg-gray-200" />
                     <button onClick={() => setLoopMode(m => !m)}
                         className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${loopMode ? "bg-green-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200"}`}>
@@ -1460,17 +1479,25 @@ function App() {
 
             {/* Map area with left panel + side rail */}
             <div className="flex-1 flex gap-2 p-2 min-h-0 relative">
+                {/* Floating menu button (mobile, always visible — also restores hidden UI) */}
+                <button onClick={() => { setUiVisible(true); setPanelOpen(true); }}
+                    className="md:hidden absolute top-3 left-3 z-[900] w-10 h-10 rounded-full bg-white dark:bg-gray-900 shadow-lg flex items-center justify-center text-xl active:bg-gray-100"
+                    title={tr("เมนู", "Menu")}>☰</button>
                 {/* Mobile: backdrop behind the drawer */}
-                {uiVisible && panelOpen && (
+                {panelOpen && (
                     <div onClick={() => setPanelOpen(false)}
                         className="fixed inset-0 bg-black bg-opacity-40 z-[1100] md:hidden" />
                 )}
-                {/* LEFT panel: loop generator + waypoint editor — drawer on mobile, inline column on desktop */}
+                {/* LEFT panel: drawer on mobile (slides from left), inline column on desktop */}
                 {uiVisible && (
-                    <div className={`flex flex-col gap-2 overflow-y-auto [&>*]:shrink-0 bg-white dark:bg-gray-900 shadow-2xl p-3 transition-transform fixed inset-x-0 bottom-0 z-[1200] max-h-[80vh] rounded-t-2xl ${panelOpen ? "translate-y-0" : "translate-y-full"} md:static md:inset-auto md:translate-y-0 md:w-64 md:max-h-none md:flex-shrink-0 md:rounded-xl md:z-auto md:shadow`} style={{ WebkitOverflowScrolling: "touch", paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}>
-                        {/* Mobile: close drawer */}
-                        <button onClick={() => setPanelOpen(false)}
-                            className="md:hidden self-end w-8 h-8 -mt-1 -mr-1 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 active:bg-gray-200">✕</button>
+                    <div className={`flex flex-col gap-2 overflow-y-auto [&>*]:shrink-0 bg-white dark:bg-gray-900 shadow-2xl p-3 transition-transform fixed inset-y-0 left-0 z-[1200] w-72 max-w-[85%] rounded-r-xl ${panelOpen ? "translate-x-0" : "-translate-x-full"} md:static md:translate-x-0 md:w-64 md:max-w-none md:flex-shrink-0 md:rounded-xl md:z-auto md:shadow`} style={{ WebkitOverflowScrolling: "touch", paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))", paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}>
+                        {/* Mobile: close + hide-UI */}
+                        <div className="md:hidden flex items-center justify-between">
+                            <button onClick={() => { setUiVisible(false); setPanelOpen(false); }}
+                                className="px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-xs font-medium text-gray-700 dark:text-gray-200 active:bg-gray-200">{tr("ซ่อน UI", "Hide UI")}</button>
+                            <button onClick={() => setPanelOpen(false)}
+                                className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 active:bg-gray-200">✕</button>
+                        </div>
 
                         {/* Settings & files row (moved off the floating rail to declutter mobile) */}
                         <div className="flex items-center justify-between gap-1">
@@ -1721,9 +1748,9 @@ function App() {
 
                         <div className="grid grid-cols-3 gap-1.5">
                             <button onClick={undo} disabled={undoStack.current.length === 0}
-                                className="py-1.5 px-2 bg-gray-100 dark:bg-gray-700 rounded text-xs font-medium text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-50">↶ {tr("ย้อน", "Undo")}</button>
+                                className="py-1.5 px-2 bg-gray-100 dark:bg-gray-700 rounded text-xs font-medium text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-50">{tr("ย้อน", "Undo")}</button>
                             <button onClick={redo} disabled={redoStack.current.length === 0}
-                                className="py-1.5 px-2 bg-gray-100 dark:bg-gray-700 rounded text-xs font-medium text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-50">↷ {tr("ทำซ้ำ", "Redo")}</button>
+                                className="py-1.5 px-2 bg-gray-100 dark:bg-gray-700 rounded text-xs font-medium text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-50">{tr("ทำซ้ำ", "Redo")}</button>
                             <button onClick={clearRoute} disabled={waypoints.length === 0}
                                 className="py-1.5 px-2 bg-red-50 text-red-700 rounded text-xs font-medium active:bg-red-100 disabled:opacity-50">🗑️ {tr("ล้าง", "Clear")}</button>
                         </div>
@@ -1740,80 +1767,7 @@ function App() {
                 </div>
             </div>
 
-            {/* Bottom bar — compact: distance + ↑↓ + pace */}
-            {uiVisible && (
-                <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg px-4 py-2 flex items-center justify-between gap-3 flex-wrap" style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom))" }}>
-                    <div className="flex items-baseline gap-3 flex-wrap">
-                        <div>
-                            <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-none">{tr("ระยะทาง", "Distance")}</div>
-                            <div className="text-2xl font-bold text-green-700 leading-tight">
-                                {loadingRoute ? "..." : fmtDistance(plannedDistance)}
-                            </div>
-                        </div>
-                        {(gain > 0 || loss > 0) && (
-                            <div className="flex items-baseline gap-1 text-sm whitespace-nowrap">
-                                <span className="text-orange-600 font-semibold">↑{Math.round(gain)}</span>
-                                <span className="text-gray-400">·</span>
-                                <span className="text-blue-600 font-semibold">↓{Math.round(loss)}</span>
-                                <span className="text-gray-400 text-xs">{tr("ม.", "m")}</span>
-                            </div>
-                        )}
-                        {loadingElev && elevations.length === 0 && plannedDistance > 0 && (
-                            <div className="text-xs text-gray-400">{tr("วิเคราะห์ความชัน...", "Analyzing elevation...")}</div>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500 dark:text-gray-400">Pace</span>
-                        <input type="number" min="3" max="15" value={paceMin}
-                            onChange={(e) => setPaceMin(Math.max(3, Math.min(15, parseInt(e.target.value) || 6)))}
-                            className="w-12 px-1 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded text-center" />
-                        <span className="font-bold text-gray-700 dark:text-gray-200">:</span>
-                        <input type="number" min="0" max="59" value={paceSec}
-                            onChange={(e) => setPaceSec(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
-                            className="w-12 px-1 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded text-center" />
-                        <span className="text-xs text-gray-500 dark:text-gray-400">/{tr("กม.", "km")}</span>
-                        {estimatedSeconds > 0 && (
-                            <div className="text-sm font-bold text-purple-700 ml-1 whitespace-nowrap">
-                                ⏱ {fmtTime(estimatedSeconds)}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-
-            {/* Mobile quick tools — frequently used actions surfaced outside the menu (phone only) */}
-            {uiVisible && (
-                <div className="md:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 px-2 py-2 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap">
-                    <button onClick={reverseRoute} disabled={waypoints.length < 2}
-                        className="flex-shrink-0 px-2.5 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40">🔁 {tr("กลับทิศ", "Reverse")}</button>
-                    <button onClick={optimizeOrder} disabled={waypoints.length < 3}
-                        className="flex-shrink-0 px-2.5 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40">🎯 {tr("สั้นสุด", "Shortest")}</button>
-                    <button onClick={snapWaypointsToRoads} disabled={waypoints.length === 0}
-                        className="flex-shrink-0 px-2.5 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40">🛣️ {tr("ยึดถนน", "Snap")}</button>
-                    <button onClick={closeLoop} disabled={waypoints.length < 2 || isClosedLoopWp()}
-                        className="flex-shrink-0 px-2.5 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40">🔗 {tr("ปิดวง", "Close loop")}</button>
-                    <button onClick={showAlternatives} disabled={waypoints.length < 2}
-                        className="flex-shrink-0 px-2.5 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40">🔀 {tr("เส้นทางอื่น", "Routes")}</button>
-                </div>
-            )}
-
-            {/* Mobile menu bar — always visible (so UI can be brought back when hidden) */}
-            <div className="md:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg flex items-stretch"
-                style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-                <button onClick={() => { setUiVisible(true); setPanelOpen(true); }}
-                    className="flex-1 py-2.5 flex items-center justify-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 active:bg-gray-100 dark:active:bg-gray-800">
-                    <span className="text-lg">☰</span> {tr("เมนู", "Menu")}
-                </button>
-                <span className="w-px bg-gray-200 dark:bg-gray-700" />
-                <button onClick={() => setUiVisible(v => !v)}
-                    className="flex-1 py-2.5 flex items-center justify-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 active:bg-gray-100 dark:active:bg-gray-800">
-                    <span style={{ position: "relative", display: "inline-flex", fontWeight: 700 }}>
-                        UI{uiVisible && <span style={{ position: "absolute", top: "50%", left: "-3px", right: "-3px", height: "2px", background: "#e24b4a", transform: "translateY(-50%) rotate(-25deg)" }} />}
-                    </span>
-                    {uiVisible ? tr("ซ่อน", "Hide") : tr("แสดง", "Show")}
-                </button>
-            </div>
+            {/* (bottom bars removed — distance/time/pace now in the header; tools live in the menu) */}
 
             {/* (removed floating elevation popup — chart now lives in the left panel) */}
             {false && (
