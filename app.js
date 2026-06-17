@@ -470,21 +470,37 @@ async function generateSmoothOneWay(start, targetMeters, seed, minPoints, maxPoi
     return best;
 }
 
-// Elevation via Open-Meteo (free, no key, CORS-enabled, reliable — open-elevation was 504-ing).
-// Up to 100 points per request, so we sample the route down to ~100 coords.
+// Elevation lookup, free + no key. Up to 100 points per request, so we sample the route to ~100.
+// Primary: Open-Meteo (best resolution). Fallback: Open-Elevation — used when Open-Meteo is down
+// or its daily quota is exhausted (HTTP 429), which would otherwise silently break elevation gain.
 async function fetchElevation(coords) {
     if (coords.length === 0) return [];
     const step = Math.max(1, Math.floor(coords.length / 100));
     let sampled = coords.filter((_, i) => i % step === 0);
     if (sampled.length > 100) sampled = sampled.slice(0, 100);
-    const lats = sampled.map(c => c.lat.toFixed(5)).join(",");
-    const lngs = sampled.map(c => c.lng.toFixed(5)).join(",");
+
+    // Primary: Open-Meteo
     try {
+        const lats = sampled.map(c => c.lat.toFixed(5)).join(",");
+        const lngs = sampled.map(c => c.lng.toFixed(5)).join(",");
         const res = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lngs}`);
-        if (!res.ok) throw new Error("elevation");
-        const j = await res.json();
-        return Array.isArray(j.elevation) ? j.elevation : [];
-    } catch (e) { return []; }
+        if (res.ok) {
+            const j = await res.json();
+            if (Array.isArray(j.elevation) && j.elevation.length) return j.elevation;
+        }
+    } catch (e) { /* fall through to backup */ }
+
+    // Backup: Open-Elevation (GET, CORS-enabled — no preflight)
+    try {
+        const locs = sampled.map(c => `${c.lat.toFixed(5)},${c.lng.toFixed(5)}`).join("|");
+        const res = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${locs}`);
+        if (res.ok) {
+            const j = await res.json();
+            if (Array.isArray(j.results)) return j.results.map(r => r.elevation);
+        }
+    } catch (e) { /* give up — caller treats [] as "no data" */ }
+
+    return [];
 }
 
 // Base map tile layers — all free, no API key.
