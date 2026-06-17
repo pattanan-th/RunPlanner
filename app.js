@@ -760,13 +760,13 @@ function App() {
         tileLayerRef.current.remove();
         tileLayerRef.current = L.tileLayer(cfg.url, cfg.opts).addTo(map);
         tileLayerRef.current.bringToBack();
-        // Night look for layers without a native dark version: invert the drawn maps
-        // (terrain/trail) to dark; dim satellite (inverting real photos looks wrong);
-        // standard already uses dark tiles so no filter.
+        // Night look, kept bright enough to read: lighten the dark standard tiles; invert the
+        // drawn maps (terrain/trail) with a brightness boost; only lightly dim satellite.
         let filter = "none";
         if (theme === "dark") {
-            if (mapLayer === "satellite") filter = "brightness(0.6)";
-            else if (mapLayer === "terrain" || mapLayer === "trail") filter = "invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9)";
+            if (mapLayer === "satellite") filter = "brightness(0.85)";
+            else if (mapLayer === "terrain" || mapLayer === "trail") filter = "invert(1) hue-rotate(180deg) brightness(1.25) contrast(0.9)";
+            else filter = "brightness(1.7)"; // standard = CARTO Dark Matter, brighten so streets are visible
         }
         const cont = tileLayerRef.current.getContainer && tileLayerRef.current.getContainer();
         if (cont) cont.style.filter = filter;
