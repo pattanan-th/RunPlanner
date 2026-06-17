@@ -1782,6 +1782,22 @@ function App() {
             )}
 
 
+            {/* Mobile quick tools — frequently used actions surfaced outside the menu (phone only) */}
+            {uiVisible && (
+                <div className="md:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 px-2 py-2 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap">
+                    <button onClick={reverseRoute} disabled={waypoints.length < 2}
+                        className="flex-shrink-0 px-2.5 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40">🔁 {tr("กลับทิศ", "Reverse")}</button>
+                    <button onClick={optimizeOrder} disabled={waypoints.length < 3}
+                        className="flex-shrink-0 px-2.5 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40">🎯 {tr("สั้นสุด", "Shortest")}</button>
+                    <button onClick={snapWaypointsToRoads} disabled={waypoints.length === 0}
+                        className="flex-shrink-0 px-2.5 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40">🛣️ {tr("ยึดถนน", "Snap")}</button>
+                    <button onClick={closeLoop} disabled={waypoints.length < 2 || isClosedLoopWp()}
+                        className="flex-shrink-0 px-2.5 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40">🔗 {tr("ปิดวง", "Close loop")}</button>
+                    <button onClick={showAlternatives} disabled={waypoints.length < 2}
+                        className="flex-shrink-0 px-2.5 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-40">🔀 {tr("เส้นทางอื่น", "Routes")}</button>
+                </div>
+            )}
+
             {/* Mobile menu bar — always visible (so UI can be brought back when hidden) */}
             <div className="md:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg flex items-stretch"
                 style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
