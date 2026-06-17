@@ -1413,11 +1413,11 @@ function App() {
                             <span className="text-[10px] text-gray-500 dark:text-gray-400 mr-1">Pace</span>
                             <input type="number" min="0" max="99" value={paceMin}
                                 onChange={(e) => setPaceMin(e.target.value === "" ? "" : Math.max(0, Math.min(99, parseInt(e.target.value) || 0)))}
-                                className="w-11 px-1 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded text-center bg-white dark:bg-gray-800" />
+                                className="w-11 px-1 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded text-center bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
                             <span className="font-bold text-gray-700 dark:text-gray-200">:</span>
                             <input type="number" min="0" max="59" value={paceSec}
                                 onChange={(e) => setPaceSec(e.target.value === "" ? "" : Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
-                                className="w-11 px-1 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded text-center bg-white dark:bg-gray-800" />
+                                className="w-11 px-1 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded text-center bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
                             <span className="text-[10px] text-gray-500 dark:text-gray-400 ml-0.5">/{tr("กม.", "km")}</span>
                         </div>
                     </div>
@@ -1553,7 +1553,7 @@ function App() {
                                         <input type="number" inputMode="decimal" step="0.5" min="0.5"
                                             placeholder={tr("กำหนดเอง (กม.)", "Custom (km)")} value={customKm}
                                             onChange={(e) => setCustomKm(e.target.value)}
-                                            className="flex-1 min-w-0 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:border-green-500" />
+                                            className="flex-1 min-w-0 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:border-green-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
                                         <button onClick={regenerateLoop} disabled={!loopStart || generatingLoop}
                                             className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium active:bg-green-200 disabled:opacity-50">
                                             {generatingLoop ? "..." : "🎲"}
@@ -1643,7 +1643,7 @@ function App() {
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400">{tr("ลด", "min")} &gt;</span>
                                     <input type="number" min="5" max="500" step="5" value={simplifyEpsilon}
                                         onChange={(e) => setSimplifyEpsilon(parseInt(e.target.value) || 30)}
-                                        className="w-14 px-1 py-0.5 text-[10px] border border-gray-300 dark:border-gray-600 rounded" />
+                                        className="w-14 px-1 py-0.5 text-[10px] border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400">{tr("ม.", "m")}</span>
                                 </div>
                                 <label className="flex items-center gap-2 text-[11px] text-gray-700 dark:text-gray-200 px-1 pt-1 border-t border-gray-100 dark:border-gray-700">
