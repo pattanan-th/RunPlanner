@@ -470,16 +470,52 @@ async function generateSmoothOneWay(start, targetMeters, seed, minPoints, maxPoi
     return best;
 }
 
-// Elevation lookup, free + no key. Up to 100 points per request, so we sample the route to ~100.
-// Primary: Open-Meteo (best resolution). Fallback: Open-Elevation — used when Open-Meteo is down
-// or its daily quota is exhausted (HTTP 429), which would otherwise silently break elevation gain.
+// Google Elevation (same key/SDK as routing). Lazy singleton — null until the SDK has loaded.
+let _elevService = null;
+function elevService() {
+    if (!_elevService && window.google && google.maps && google.maps.ElevationService) {
+        _elevService = new google.maps.ElevationService();
+    }
+    return _elevService;
+}
+// Returns elevations aligned to `sampled`, or [] if Google isn't ready / Elevation API errors.
+// A timeout is essential: errors like RefererNotAllowedMapError never invoke the callback, so
+// without it the Promise would hang forever and elevation would never fall back to a free provider.
+function fetchElevationGoogle(sampled) {
+    return new Promise((resolve) => {
+        const svc = elevService();
+        if (!svc) return resolve([]);
+        let done = false;
+        const finish = (v) => { if (!done) { done = true; resolve(v); } };
+        const timer = setTimeout(() => finish([]), 4000);
+        svc.getElevationForLocations(
+            { locations: sampled.map(c => ({ lat: c.lat, lng: c.lng })) },
+            (results, status) => {
+                clearTimeout(timer);
+                if (status === "OK" && Array.isArray(results)) finish(results.map(r => r.elevation));
+                else finish([]); // e.g. Elevation API not enabled / over quota → caller falls back
+            }
+        );
+    });
+}
+
+// Elevation lookup. Up to ~100 points per request, so we sample the route down to ~100 coords.
+// Primary: Google Elevation (reliable, no free-tier daily cap — uses the same key as routing).
+// Fallbacks: Open-Meteo, then Open-Elevation, in case Google's Elevation API isn't enabled or
+// errors — so elevation gain never silently breaks.
 async function fetchElevation(coords) {
     if (coords.length === 0) return [];
     const step = Math.max(1, Math.floor(coords.length / 100));
     let sampled = coords.filter((_, i) => i % step === 0);
     if (sampled.length > 100) sampled = sampled.slice(0, 100);
 
-    // Primary: Open-Meteo
+    // Primary: Google Elevation
+    try {
+        const g = await fetchElevationGoogle(sampled);
+        if (g.length) return g;
+    } catch (e) { /* fall through */ }
+
+    // Fallback 1: Open-Meteo
     try {
         const lats = sampled.map(c => c.lat.toFixed(5)).join(",");
         const lngs = sampled.map(c => c.lng.toFixed(5)).join(",");
@@ -490,7 +526,7 @@ async function fetchElevation(coords) {
         }
     } catch (e) { /* fall through to backup */ }
 
-    // Backup: Open-Elevation (GET, CORS-enabled — no preflight)
+    // Fallback 2: Open-Elevation (GET, CORS-enabled — no preflight)
     try {
         const locs = sampled.map(c => `${c.lat.toFixed(5)},${c.lng.toFixed(5)}`).join("|");
         const res = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${locs}`);
