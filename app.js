@@ -689,6 +689,7 @@ function App() {
     const [editorCollapsed, setEditorCollapsed] = useState(false);
     const [toolsCollapsed, setToolsCollapsed] = useState(false);
     const [altCollapsed, setAltCollapsed] = useState(false);
+    const [elevCollapsed, setElevCollapsed] = useState(false);
     const [bottomCollapsed, setBottomCollapsed] = useState(false);
     const [editorOpen, setEditorOpen] = useState(false);
     const [simplifyEpsilon, setSimplifyEpsilon] = useState(30);
@@ -1464,12 +1465,6 @@ function App() {
                     <div onClick={() => setPanelOpen(false)}
                         className="fixed inset-0 bg-black bg-opacity-40 z-[1100] md:hidden" />
                 )}
-                {/* Mobile: floating button to open the drawer */}
-                {uiVisible && !panelOpen && (
-                    <button onClick={() => setPanelOpen(true)}
-                        className="md:hidden absolute top-3 left-3 z-[900] w-10 h-10 rounded-full bg-white dark:bg-gray-900 shadow-lg flex items-center justify-center text-xl active:bg-gray-100 dark:bg-gray-700"
-                        title={tr("เมนู", "Menu")}>☰</button>
-                )}
                 {/* LEFT panel: loop generator + waypoint editor — drawer on mobile, inline column on desktop */}
                 {uiVisible && (
                     <div className={`flex flex-col gap-2 overflow-y-auto [&>*]:shrink-0 bg-white dark:bg-gray-900 shadow p-3 transition-transform fixed inset-y-0 left-0 z-[1200] w-64 max-w-[82%] rounded-r-xl ${panelOpen ? "translate-x-0" : "-translate-x-full"} md:static md:translate-x-0 md:w-64 md:flex-shrink-0 md:rounded-xl md:z-auto md:max-w-none`} style={{ WebkitOverflowScrolling: "touch" }}>
@@ -1708,6 +1703,22 @@ function App() {
                             </div>
                         )}
 
+                        {/* Elevation profile (embedded in the panel) */}
+                        {elevations.length >= 2 && (
+                            <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                                <button onClick={() => setElevCollapsed(c => !c)}
+                                    className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 text-sm font-medium text-gray-800 dark:text-gray-100">
+                                    <span>⛰️ {tr("ความชัน", "Elevation")} <span className="text-xs text-gray-500 dark:text-gray-400">↑{Math.round(gain)} ↓{Math.round(loss)}{tr("ม.", "m")}</span></span>
+                                    <span className="text-gray-400 text-xs">{elevCollapsed ? "▸" : "▾"}</span>
+                                </button>
+                                {!elevCollapsed && (
+                                    <div className="p-2 bg-white dark:bg-gray-900" style={{ height: 130 }}>
+                                        <ElevationChart elevations={elevations} totalDistanceM={plannedDistance} />
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         <div className="grid grid-cols-3 gap-1.5">
                             <button onClick={undo} disabled={undoStack.current.length === 0}
                                 className="py-1.5 px-2 bg-gray-100 dark:bg-gray-700 rounded text-xs font-medium text-gray-700 dark:text-gray-200 active:bg-gray-200 disabled:opacity-50">↶ {tr("ย้อน", "Undo")}</button>
@@ -1721,30 +1732,17 @@ function App() {
 
                 <div className="flex-1 map-frame relative">
                     <div id="map"></div>
-                </div>
-                <div className="flex flex-col gap-2">
-                    <button onClick={() => setUiVisible(v => !v)} className="side-rail-btn" title={uiVisible ? tr("ซ่อน UI", "Hide UI") : tr("แสดง UI", "Show UI")}>
-                        <span style={{ position: "relative", display: "inline-flex", fontSize: "14px", fontWeight: 700, letterSpacing: "0.5px", color: uiVisible ? "#9ca3af" : (theme === "dark" ? "#e5e7eb" : "#1f2937") }}>
-                            UI
-                            {uiVisible && <span style={{ position: "absolute", top: "50%", left: "-4px", right: "-4px", height: "2px", borderRadius: "2px", background: "#e24b4a", transform: "translateY(-50%) rotate(-25deg)" }} />}
-                        </span>
-                    </button>
-                    <button onClick={centerOnMe} className="side-rail-btn" title={tr("ตำแหน่งฉัน", "My location")}>
-                        <span className="text-lg">📍</span>
-                    </button>
-                    <button onClick={() => setElevPopupOpen(o => !o)}
-                        className={`side-rail-btn ${elevPopupOpen ? "ring-2 ring-green-500" : ""}`}
-                        title={tr("โปรไฟล์ความชัน", "Elevation profile")}
-                        disabled={elevations.length < 2}
-                        style={{ opacity: elevations.length < 2 ? 0.4 : 1 }}>
-                        <span className="text-lg">⛰️</span>
+                    {/* My-location control floating on the map (bottom-right) */}
+                    <button onClick={centerOnMe} title={tr("ตำแหน่งฉัน", "My location")}
+                        className="absolute bottom-4 right-3 z-[800] w-11 h-11 rounded-full bg-white dark:bg-gray-900 shadow-lg flex items-center justify-center text-xl active:bg-gray-100">
+                        📍
                     </button>
                 </div>
             </div>
 
             {/* Bottom bar — compact: distance + ↑↓ + pace */}
             {uiVisible && (
-                <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg px-4 py-2 flex items-center justify-between gap-3 flex-wrap">
+                <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg px-4 py-2 flex items-center justify-between gap-3 flex-wrap" style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom))" }}>
                     <div className="flex items-baseline gap-3 flex-wrap">
                         <div>
                             <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-none">{tr("ระยะทาง", "Distance")}</div>
@@ -1784,8 +1782,25 @@ function App() {
             )}
 
 
-            {/* Elevation profile floating popup — draggable (header) + resizable (corner) */}
-            {elevPopupOpen && elevations.length >= 2 && (
+            {/* Mobile menu bar — always visible (so UI can be brought back when hidden) */}
+            <div className="md:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 shadow-lg flex items-stretch"
+                style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+                <button onClick={() => { setUiVisible(true); setPanelOpen(true); }}
+                    className="flex-1 py-2.5 flex items-center justify-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 active:bg-gray-100 dark:active:bg-gray-800">
+                    <span className="text-lg">☰</span> {tr("เมนู", "Menu")}
+                </button>
+                <span className="w-px bg-gray-200 dark:bg-gray-700" />
+                <button onClick={() => setUiVisible(v => !v)}
+                    className="flex-1 py-2.5 flex items-center justify-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 active:bg-gray-100 dark:active:bg-gray-800">
+                    <span style={{ position: "relative", display: "inline-flex", fontWeight: 700 }}>
+                        UI{uiVisible && <span style={{ position: "absolute", top: "50%", left: "-3px", right: "-3px", height: "2px", background: "#e24b4a", transform: "translateY(-50%) rotate(-25deg)" }} />}
+                    </span>
+                    {uiVisible ? tr("ซ่อน", "Hide") : tr("แสดง", "Show")}
+                </button>
+            </div>
+
+            {/* (removed floating elevation popup — chart now lives in the left panel) */}
+            {false && (
                 <div className="fixed z-40 bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
                     style={elevPopupPos
                         ? { left: elevPopupPos.x, top: elevPopupPos.y, width: elevPopupDims.w, opacity: elevPopupOpacity }
