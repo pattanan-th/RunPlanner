@@ -500,6 +500,11 @@ const DARK_TILES = { url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y
 // lines and labels are genuinely dark, so grayscaling it gives a true monotone map whose lines
 // stay sharp instead of washing out to near-white.
 const LIGHT_TILES = { url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", opts: { maxZoom: 19, attribution: "&copy; OpenStreetMap" } };
+// Fine zoom control: map a 0-100% slider onto a usable Leaflet zoom range.
+const ZOOM_MIN = 3;   // ~country level
+const ZOOM_MAX = 19;  // ~building level
+const pctToZoom = (p) => ZOOM_MIN + (Math.max(0, Math.min(100, p)) / 100) * (ZOOM_MAX - ZOOM_MIN);
+const zoomToPct = (z) => Math.round(((z - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN)) * 100);
 function baseTileCfg(layer, theme) {
     if (layer === "standard") return theme === "dark" ? DARK_TILES : LIGHT_TILES;
     return TILE_LAYERS[layer] || TILE_LAYERS.standard;
@@ -711,14 +716,22 @@ function App() {
     const [colorByGrade, setColorByGrade] = useState(false); // color the route line by slope steepness
     const [cutThrough, setCutThrough] = useState(true);   // default on: bridge short "closed" gaps with straight lines
     const [histVer, setHistVer] = useState(0);            // bumps to refresh undo/redo button state
+    const [zoomPct, setZoomPct] = useState(69);           // fine zoom as 0-100% (mapped to ZOOM_MIN..ZOOM_MAX)
     const [toast, setToast] = useState(null);
 
     const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
     useEffect(() => {
         if (mapInstanceRef.current) return;
-        const map = L.map("map", { center: [13.7563, 100.5018], zoom: 14, zoomControl: false });
-        L.control.zoom({ position: "topright" }).addTo(map);
+        const map = L.map("map", {
+            center: [13.7563, 100.5018], zoom: 14, zoomControl: false,
+            minZoom: ZOOM_MIN, maxZoom: ZOOM_MAX,
+            zoomSnap: 0, zoomDelta: 0.5, // allow smooth fractional zoom for the 1%-step slider
+        });
+        // (no default L.control.zoom — replaced by the fine 0-100% slider on the map)
+        // Keep the fine-zoom slider (%) in sync whenever the map zoom changes (buttons/scroll/pinch).
+        map.on("zoom", () => setZoomPct(zoomToPct(map.getZoom())));
+        setZoomPct(zoomToPct(map.getZoom()));
         const base = baseTileCfg("standard", theme);
         tileLayerRef.current = L.tileLayer(base.url, base.opts).addTo(map);
         mapInstanceRef.current = map;
@@ -1327,6 +1340,13 @@ function App() {
         };
         reader.readAsText(file);
     };
+    // Fine zoom: apply a 0-100% value to the map (1% steps). The map's "zoom" listener
+    // mirrors the value back into zoomPct, so buttons/scroll/pinch stay in sync too.
+    const applyZoomPct = (p) => {
+        const clamped = Math.max(0, Math.min(100, Math.round(p)));
+        setZoomPct(clamped);
+        if (mapInstanceRef.current) mapInstanceRef.current.setZoom(pctToZoom(clamped));
+    };
     const centerOnMe = () => {
         if (!navigator.geolocation) {
             showToast(tr("เบราว์เซอร์นี้ไม่รองรับ GPS", "Browser doesn't support GPS"));
@@ -1760,6 +1780,23 @@ function App() {
 
                 <div className="flex-1 map-frame relative">
                     <div id="map"></div>
+                    {/* Fine zoom control (0-100%, 1% steps) floating on the map (left side) */}
+                    <div className="absolute left-3 bottom-4 z-[800] flex flex-col items-center gap-1 bg-white/95 dark:bg-gray-900/95 rounded-full shadow-lg py-2 px-1.5 select-none">
+                        <button onClick={() => applyZoomPct(zoomPct + 1)} title={tr("ขยาย", "Zoom in")}
+                            className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100 text-lg leading-none flex items-center justify-center active:bg-gray-200 dark:active:bg-gray-700">
+                            +
+                        </button>
+                        <input type="range" min="0" max="100" step="1" value={zoomPct}
+                            onChange={(e) => applyZoomPct(parseInt(e.target.value))}
+                            title={tr("ระดับการซูม", "Zoom level")}
+                            className="accent-green-600 cursor-pointer"
+                            style={{ writingMode: "vertical-lr", direction: "rtl", width: "20px", height: "96px" }} />
+                        <button onClick={() => applyZoomPct(zoomPct - 1)} title={tr("ย่อ", "Zoom out")}
+                            className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100 text-lg leading-none flex items-center justify-center active:bg-gray-200 dark:active:bg-gray-700">
+                            −
+                        </button>
+                        <span className="text-[10px] font-semibold text-gray-600 dark:text-gray-300 tabular-nums w-8 text-center">{zoomPct}%</span>
+                    </div>
                     {/* My-location control floating on the map (bottom-right) */}
                     <button onClick={centerOnMe} title={tr("ตำแหน่งฉัน", "My location")}
                         className="absolute bottom-4 right-3 z-[800] w-11 h-11 rounded-full bg-white dark:bg-gray-900 shadow-lg flex items-center justify-center text-xl active:bg-gray-100">
