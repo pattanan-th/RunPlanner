@@ -1064,7 +1064,7 @@ function App() {
     const plannedDistance = useMemo(() => totalDistance(routedCoords), [routedCoords]);
     const gain = useMemo(() => elevationGain(elevations), [elevations]);
     const loss = useMemo(() => elevationLoss(elevations), [elevations]);
-    const paceSecPerKm = paceMin * 60 + paceSec;
+    const paceSecPerKm = (Number(paceMin) || 0) * 60 + (Number(paceSec) || 0);
     const estimatedSeconds = plannedDistance > 0 ? (plannedDistance / 1000) * paceSecPerKm : 0;
 
     useEffect(() => {
@@ -1410,12 +1410,12 @@ function App() {
                         </div>
                         <div className="flex items-center gap-1">
                             <span className="text-[10px] text-gray-500 dark:text-gray-400 mr-1">Pace</span>
-                            <input type="number" min="3" max="15" value={paceMin}
-                                onChange={(e) => setPaceMin(Math.max(3, Math.min(15, parseInt(e.target.value) || 6)))}
+                            <input type="number" min="0" max="99" value={paceMin}
+                                onChange={(e) => setPaceMin(e.target.value === "" ? "" : Math.max(0, Math.min(99, parseInt(e.target.value) || 0)))}
                                 className="w-11 px-1 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded text-center bg-white dark:bg-gray-800" />
                             <span className="font-bold text-gray-700 dark:text-gray-200">:</span>
-                            <input type="number" min="0" max="59" value={paceSec}
-                                onChange={(e) => setPaceSec(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                            <input type="number" min="0" max="99" value={paceSec}
+                                onChange={(e) => setPaceSec(e.target.value === "" ? "" : Math.max(0, Math.min(99, parseInt(e.target.value) || 0)))}
                                 className="w-11 px-1 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded text-center bg-white dark:bg-gray-800" />
                             <span className="text-[10px] text-gray-500 dark:text-gray-400 ml-0.5">/{tr("กม.", "km")}</span>
                         </div>
