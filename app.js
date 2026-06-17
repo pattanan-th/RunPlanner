@@ -496,7 +496,7 @@ const TILE_LAYERS = {
 };
 // Monotone CARTO basemaps for the "standard" layer: Positron (light) / Dark Matter (dark).
 const DARK_TILES = { url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", opts: { maxZoom: 20, attribution: "&copy; CARTO" } };
-const LIGHT_TILES = { url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png", opts: { maxZoom: 20, attribution: "&copy; CARTO" } };
+const LIGHT_TILES = { url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png", opts: { maxZoom: 20, attribution: "&copy; CARTO" } };
 function baseTileCfg(layer, theme) {
     if (layer === "standard") return theme === "dark" ? DARK_TILES : LIGHT_TILES;
     return TILE_LAYERS[layer] || TILE_LAYERS.standard;
