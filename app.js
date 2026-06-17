@@ -769,6 +769,8 @@ function App() {
             if (mapLayer === "satellite") filter = "brightness(1.1)";
             else if (mapLayer === "terrain" || mapLayer === "trail") filter = "invert(1) hue-rotate(180deg) brightness(1.85) contrast(0.9)";
             else filter = "brightness(2.5)"; // standard = CARTO Dark Matter, +50% brighter so streets are clearly visible
+        } else if (mapLayer === "standard") {
+            filter = "grayscale(1) contrast(1.05)"; // Voyager → monotone, but keep its clear road contrast
         }
         const cont = tileLayerRef.current.getContainer && tileLayerRef.current.getContainer();
         if (cont) cont.style.filter = filter;
