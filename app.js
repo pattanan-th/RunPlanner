@@ -1569,7 +1569,18 @@ function App() {
                                 className="hidden"
                                 onChange={(e) => { importGpx(e.target.files[0]); e.target.value = ""; }} />
                             <button onClick={openInGoogleMaps} disabled={routedCoords.length < 2 && waypoints.length < 2} title={tr("เปิดใน Google Maps", "Open in Google Maps")}
-                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg disabled:opacity-40">🗺️</button>
+                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center disabled:opacity-40">
+                                <svg viewBox="0 0 24 24" width="18" height="18" aria-label="Google Maps">
+                                    <defs><clipPath id="gmapsPin"><path d="M12 2c-4.42 0-8 3.58-8 8 0 5.25 8 12 8 12s8-6.75 8-12c0-4.42-3.58-8-8-8z"/></clipPath></defs>
+                                    <g clipPath="url(#gmapsPin)">
+                                        <rect x="0" y="0" width="24" height="24" fill="#4285F4"/>
+                                        <path d="M0 0 H24 V7 H0 Z" fill="#EA4335"/>
+                                        <path d="M24 6 L24 24 L9 24 Z" fill="#FBBC04"/>
+                                        <path d="M0 9 L13 24 L0 24 Z" fill="#34A853"/>
+                                    </g>
+                                    <circle cx="12" cy="9.5" r="3" fill="#fff"/>
+                                </svg>
+                            </button>
                         </div>
 
                         {/* Loop generator */}
