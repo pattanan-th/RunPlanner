@@ -1318,21 +1318,26 @@ function App() {
         showToast(tr("ดาวน์โหลด .gpx แล้ว", "Downloaded .gpx"));
     };
     // Open the route in Google Maps directions (walking). Google's URL takes only points
-    // (origin + destination + ≤9 waypoints), so we evenly downsample the drawn line to ≤9
-    // intermediate points — the shape is approximate and Google re-routes between them.
+    // (origin + destination + ≤9 waypoints) and re-routes between them. To keep the stop list
+    // short, we first simplify the drawn line to its significant turns (Douglas–Peucker), so a
+    // straight route becomes just origin→destination instead of 9 evenly-spaced stops; only if
+    // there are still too many turns do we downsample to fit Google's 9-waypoint cap.
     const openInGoogleMaps = () => {
         const pts = routedCoords.length >= 2 ? routedCoords : waypoints;
         if (pts.length < 2) { showToast(tr("ยังไม่มีเส้นทาง", "No route yet")); return; }
         const fmt = (p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
-        const mid = pts.slice(1, -1);
-        const MAX = 9;
-        let via = mid;
-        if (mid.length > MAX) {
-            via = [];
-            const step = (mid.length - 1) / (MAX - 1);
-            for (let i = 0; i < MAX; i++) via.push(mid[Math.round(i * step)]);
+        const MAX_POINTS = 11; // origin + destination + 9 waypoints
+        let key = douglasPeucker(pts, 60); // ~60m tolerance collapses straight runs into endpoints
+        if (key.length > MAX_POINTS) {
+            const mid = key.slice(1, -1);
+            const want = MAX_POINTS - 2;
+            const step = (mid.length - 1) / (want - 1);
+            const picked = [];
+            for (let i = 0; i < want; i++) picked.push(mid[Math.round(i * step)]);
+            key = [key[0], ...picked, key[key.length - 1]];
         }
-        let url = `https://www.google.com/maps/dir/?api=1&origin=${fmt(pts[0])}&destination=${fmt(pts[pts.length - 1])}&travelmode=walking`;
+        const via = key.slice(1, -1);
+        let url = `https://www.google.com/maps/dir/?api=1&origin=${fmt(key[0])}&destination=${fmt(key[key.length - 1])}&travelmode=walking`;
         if (via.length) url += `&waypoints=${via.map(fmt).join("|")}`;
         window.open(url, "_blank", "noopener");
     };
