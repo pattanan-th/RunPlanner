@@ -1317,6 +1317,25 @@ function App() {
         downloadGpx(routedCoords, defaultRouteName());
         showToast(tr("ดาวน์โหลด .gpx แล้ว", "Downloaded .gpx"));
     };
+    // Open the route in Google Maps directions (walking). Google's URL takes only points
+    // (origin + destination + ≤9 waypoints), so we evenly downsample the drawn line to ≤9
+    // intermediate points — the shape is approximate and Google re-routes between them.
+    const openInGoogleMaps = () => {
+        const pts = routedCoords.length >= 2 ? routedCoords : waypoints;
+        if (pts.length < 2) { showToast(tr("ยังไม่มีเส้นทาง", "No route yet")); return; }
+        const fmt = (p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
+        const mid = pts.slice(1, -1);
+        const MAX = 9;
+        let via = mid;
+        if (mid.length > MAX) {
+            via = [];
+            const step = (mid.length - 1) / (MAX - 1);
+            for (let i = 0; i < MAX; i++) via.push(mid[Math.round(i * step)]);
+        }
+        let url = `https://www.google.com/maps/dir/?api=1&origin=${fmt(pts[0])}&destination=${fmt(pts[pts.length - 1])}&travelmode=walking`;
+        if (via.length) url += `&waypoints=${via.map(fmt).join("|")}`;
+        window.open(url, "_blank", "noopener");
+    };
     // Import a GPX file: parse its track, downsample to keep the editable marker count sane,
     // and load it as a freehand route (line follows the imported track, every point draggable).
     const importGpx = (file) => {
@@ -1549,6 +1568,8 @@ function App() {
                             <input ref={fileInputRef} type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml"
                                 className="hidden"
                                 onChange={(e) => { importGpx(e.target.files[0]); e.target.value = ""; }} />
+                            <button onClick={openInGoogleMaps} disabled={routedCoords.length < 2 && waypoints.length < 2} title={tr("เปิดใน Google Maps", "Open in Google Maps")}
+                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg disabled:opacity-40">🗺️</button>
                         </div>
 
                         {/* Loop generator */}
