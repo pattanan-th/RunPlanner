@@ -670,6 +670,106 @@ function ElevationChart({ elevations, totalDistanceM }) {
     );
 }
 
+// Large, interactive elevation profile for the detail modal. Distance + elevation axes with
+// labels, the profile line colored by grade (steepness), and a scrubber: move/touch to read
+// the distance, elevation and grade at any point along the route.
+function DetailedElevationChart({ elevations, totalDistanceM }) {
+    const [hover, setHover] = React.useState(null); // sample index under the cursor
+    const wrapRef = React.useRef(null);
+    if (!elevations || elevations.length < 2) {
+        return <div className="text-sm text-gray-400 text-center py-16">{tr("ยังไม่มีข้อมูลความสูง", "No elevation data yet")}</div>;
+    }
+    const n = elevations.length;
+    const min = Math.min(...elevations), max = Math.max(...elevations);
+    const range = max - min || 1;
+    const totalKm = (totalDistanceM || 0) / 1000;
+    const segM = n > 1 ? (totalDistanceM || 0) / (n - 1) : 0;
+
+    const W = 1000, H = 360, padL = 48, padR = 14, padT = 14, padB = 30;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const xAt = (i) => padL + (i / (n - 1)) * plotW;
+    const yAt = (e) => padT + (1 - (e - min) / range) * plotH;
+    const gradeBetween = (i) => (segM > 0 ? ((elevations[i] - elevations[i - 1]) / segM) * 100 : 0);
+
+    const areaPts = `${padL},${padT + plotH} ` + elevations.map((e, i) => `${xAt(i).toFixed(1)},${yAt(e).toFixed(1)}`).join(" ") + ` ${padL + plotW},${padT + plotH}`;
+
+    // X (distance) ticks
+    let kmStep = totalKm > 20 ? 5 : totalKm > 10 ? 2 : totalKm > 4 ? 1 : totalKm > 1.5 ? 0.5 : 0.25;
+    const xticks = [];
+    for (let km = 0; km <= totalKm + 1e-6; km += kmStep) xticks.push(km);
+    // Y (elevation) ticks
+    const yticks = [0, 0.25, 0.5, 0.75, 1].map(t => min + range * t);
+
+    const onMove = (ev) => {
+        const r = wrapRef.current.getBoundingClientRect();
+        const cx = ((ev.clientX - r.left) / r.width) * W;
+        const frac = Math.max(0, Math.min(1, (cx - padL) / plotW));
+        setHover(Math.round(frac * (n - 1)));
+    };
+
+    const hg = hover != null && hover > 0 ? gradeBetween(hover) : (hover === 0 ? gradeBetween(1) : 0);
+    const hKm = hover != null ? (hover / (n - 1)) * totalKm : 0;
+
+    return (
+        <div className="w-full">
+            <div ref={wrapRef} className="relative w-full touch-none"
+                 onPointerMove={onMove} onPointerDown={onMove} onPointerLeave={() => setHover(null)}>
+                <svg viewBox={`0 0 ${W} ${H}`} className="block w-full" style={{ height: "auto" }}>
+                    {/* Y gridlines + labels */}
+                    {yticks.map((e, i) => (
+                        <g key={`y${i}`}>
+                            <line x1={padL} y1={yAt(e)} x2={padL + plotW} y2={yAt(e)} stroke="#9ca3af" strokeWidth="0.5" strokeOpacity="0.35" />
+                            <text x={padL - 6} y={yAt(e) + 3} textAnchor="end" fontSize="11" fill="#9ca3af">{Math.round(e)}</text>
+                        </g>
+                    ))}
+                    {/* X gridlines + labels */}
+                    {xticks.map((km, i) => {
+                        const x = totalKm > 0 ? padL + (km / totalKm) * plotW : padL;
+                        return (
+                            <g key={`x${i}`}>
+                                <line x1={x} y1={padT} x2={x} y2={padT + plotH} stroke="#9ca3af" strokeWidth="0.5" strokeOpacity="0.25" />
+                                <text x={x} y={H - 10} textAnchor="middle" fontSize="11" fill="#9ca3af">
+                                    {km < 1 ? `${Math.round(km * 1000)}${tr("ม", "m")}` : `${km.toFixed(km % 1 === 0 ? 0 : 1)}`}
+                                </text>
+                            </g>
+                        );
+                    })}
+                    {/* Area fill + grade-colored profile line */}
+                    <polygon points={areaPts} fill="#10b98122" />
+                    {elevations.slice(1).map((e, idx) => {
+                        const i = idx + 1;
+                        return <line key={`s${i}`} x1={xAt(i - 1)} y1={yAt(elevations[i - 1])} x2={xAt(i)} y2={yAt(e)}
+                                     stroke={gradeColor(gradeBetween(i))} strokeWidth="3" strokeLinecap="round" />;
+                    })}
+                    {/* Hover scrubber */}
+                    {hover != null && (
+                        <g>
+                            <line x1={xAt(hover)} y1={padT} x2={xAt(hover)} y2={padT + plotH} stroke="#6b7280" strokeWidth="1" strokeDasharray="3 3" />
+                            <circle cx={xAt(hover)} cy={yAt(elevations[hover])} r="4.5" fill="#fff" stroke="#111827" strokeWidth="2" />
+                        </g>
+                    )}
+                </svg>
+                {/* Readout chip following the scrubber */}
+                {hover != null && (
+                    <div className="absolute top-1 px-2 py-1 rounded-md bg-gray-900/90 text-white text-[11px] leading-tight pointer-events-none whitespace-nowrap"
+                         style={{ left: `${(xAt(hover) / W) * 100}%`, transform: `translateX(${hover > n / 2 ? "-105%" : "5%"})` }}>
+                        <div>{hKm < 1 ? `${Math.round(hKm * 1000)} ${tr("ม.", "m")}` : `${hKm.toFixed(2)} ${tr("กม.", "km")}`}</div>
+                        <div>{tr("สูง", "Elev")} {Math.round(elevations[hover])} {tr("ม.", "m")}</div>
+                        <div style={{ color: gradeColor(hg) }}>{tr("ชัน", "Grade")} {hg >= 0 ? "+" : ""}{hg.toFixed(1)}%</div>
+                    </div>
+                )}
+            </div>
+            <div className="flex justify-between flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-300 mt-2">
+                <span>{tr("ต่ำสุด", "Low")} {Math.round(min)}{tr("ม", "m")}</span>
+                <span>{tr("สูงสุด", "High")} {Math.round(max)}{tr("ม", "m")}</span>
+                <span className="text-green-700 dark:text-green-400">↑{Math.round(elevationGain(elevations))}{tr("ม", "m")}</span>
+                <span className="text-red-700 dark:text-red-400">↓{Math.round(elevationLoss(elevations))}{tr("ม", "m")}</span>
+                <span>{tr("ระยะ", "Dist")} {totalKm.toFixed(2)}{tr("กม", "km")}</span>
+            </div>
+        </div>
+    );
+}
+
 const LOOP_PRESETS = [
     { km: 5 }, { km: 10 }, { km: 21 },
 ];
@@ -740,6 +840,7 @@ function App() {
 
     const [elevations, setElevations] = useState([]);
     const [loadingElev, setLoadingElev] = useState(false);
+    const [elevModalOpen, setElevModalOpen] = useState(false); // full-screen detailed elevation graph
 
     const [paceMin, setPaceMin] = useState(6);
     const [paceSec, setPaceSec] = useState(0);
@@ -1786,8 +1887,14 @@ function App() {
                                     <span className="text-gray-400 text-xs">{elevCollapsed ? "▸" : "▾"}</span>
                                 </button>
                                 {!elevCollapsed && (
-                                    <div className="p-2 bg-white dark:bg-gray-900" style={{ height: 130 }}>
-                                        <ElevationChart elevations={elevations} totalDistanceM={plannedDistance} />
+                                    <div className="p-2 bg-white dark:bg-gray-900">
+                                        <div style={{ height: 110 }}>
+                                            <ElevationChart elevations={elevations} totalDistanceM={plannedDistance} />
+                                        </div>
+                                        <button onClick={() => setElevModalOpen(true)}
+                                            className="mt-1.5 w-full py-1.5 rounded-md bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs font-medium active:bg-green-100">
+                                            🔍 {tr("ดูกราฟละเอียด", "Detailed graph")}
+                                        </button>
                                     </div>
                                 )}
                             </div>
@@ -1859,6 +1966,27 @@ function App() {
                         title={tr("ปรับขนาด", "Resize")}
                         className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize touch-none"
                         style={{ background: "linear-gradient(135deg, transparent 50%, #9ca3af 50%)" }} />
+                </div>
+            )}
+
+            {/* Detailed elevation graph modal */}
+            {elevModalOpen && (
+                <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 p-3"
+                     onClick={() => setElevModalOpen(false)}>
+                    <div className="w-full max-w-3xl bg-white dark:bg-gray-900 rounded-xl shadow-2xl overflow-hidden"
+                         onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
+                            <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                                ⛰️ {tr("กราฟความชันแบบละเอียด", "Detailed elevation")}
+                                <span className="text-xs font-normal text-gray-500 dark:text-gray-400 ml-2">{tr("แตะ/ลากบนกราฟเพื่ออ่านค่า", "Drag on the graph to read values")}</span>
+                            </span>
+                            <button onClick={() => setElevModalOpen(false)}
+                                className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 active:bg-gray-200">✕</button>
+                        </div>
+                        <div className="p-4">
+                            <DetailedElevationChart elevations={elevations} totalDistanceM={plannedDistance} />
+                        </div>
+                    </div>
                 </div>
             )}
 
