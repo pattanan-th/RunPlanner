@@ -983,12 +983,12 @@ function App() {
     useEffect(() => {
         const map = mapInstanceRef.current;
         if (!map) return;
-        if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null; }
-        if (routedCoords.length < 2) return;
 
         const step = Math.max(1, Math.floor(routedCoords.length / 100));
         const canGrade = colorByGrade && elevations.length >= 2;
 
+        // Per-band smoothed grade (computed once; independent of zoom).
+        let bandGrade = [];
         if (canGrade) {
             const last = routedCoords.length - 1;
             const raw = [];
@@ -998,36 +998,59 @@ function App() {
                 const dx = haversine(a, c) || 1;
                 raw[b] = ((elevations[b + 1] - elevations[b]) / dx) * 100;
             }
-            // Smooth grades (3-point moving average) so coarse elevation noise doesn't make the
-            // gradient flicker — the up/down trend reads cleanly.
-            const bandGrade = raw.map((_, b) => {
+            // 3-point moving average so coarse elevation noise doesn't make the gradient flicker.
+            bandGrade = raw.map((_, b) => {
                 const a = raw[b - 1], c = raw[b + 1];
                 let s = raw[b], n = 1;
                 if (a !== undefined) { s += a; n++; }
                 if (c !== undefined) { s += c; n++; }
                 return s / n;
             });
+        }
+
+        // Offset each vertex to the RIGHT of travel direction by a fixed number of screen pixels.
+        // An out-and-back on the same path then renders as two parallel lines: the return pass
+        // travels the opposite way, so its "right" is the other side. Recomputed on zoom so the
+        // on-screen gap stays constant regardless of zoom level.
+        const OFFSET_PX = 4;
+        const offsetLatLngs = (coords) => {
+            const pts = coords.map(c => map.latLngToLayerPoint([c.lat, c.lng]));
+            return pts.map((pt, i) => {
+                const prev = pts[i - 1] || pt, next = pts[i + 1] || pt;
+                const dx = next.x - prev.x, dy = next.y - prev.y;
+                const len = Math.hypot(dx, dy) || 1;
+                const ll = map.layerPointToLatLng(L.point(pt.x + (dy / len) * OFFSET_PX, pt.y - (dx / len) * OFFSET_PX));
+                return [ll.lat, ll.lng];
+            });
+        };
+
+        const draw = () => {
+            if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null; }
+            if (routedCoords.length < 2) return;
+            const off = offsetLatLngs(routedCoords);
             const grp = L.layerGroup();
-            // Dark casing underneath the full route so the colored segments have a crisp edge.
-            L.polyline(routedCoords.map(c => [c.lat, c.lng]), { color: "#003300", weight: 8, opacity: 0.9 }).addTo(grp);
-            for (let i = 1; i < routedCoords.length; i++) {
-                const band = Math.min(Math.floor((i - 1) / step), bandGrade.length - 1);
-                L.polyline(
-                    [[routedCoords[i - 1].lat, routedCoords[i - 1].lng], [routedCoords[i].lat, routedCoords[i].lng]],
-                    { color: gradeColor(bandGrade[band] || 0), weight: 5, opacity: 0.95 }
-                ).addTo(grp);
+            if (canGrade) {
+                // Thin dark casing under the colored segments for a crisp edge.
+                L.polyline(off, { color: "#003300", weight: 5, opacity: 0.9 }).addTo(grp);
+                for (let i = 1; i < routedCoords.length; i++) {
+                    const band = Math.min(Math.floor((i - 1) / step), bandGrade.length - 1);
+                    L.polyline([off[i - 1], off[i]], { color: gradeColor(bandGrade[band] || 0), weight: 3, opacity: 0.97 }).addTo(grp);
+                }
+            } else {
+                // Thin deep-green line over a dark casing.
+                L.polyline(off, { color: "#003b00", weight: 5, opacity: 0.95 }).addTo(grp);
+                L.polyline(off, { color: "#008a00", weight: 3, opacity: 1 }).addTo(grp);
             }
             grp.addTo(map);
             routeLineRef.current = grp;
-        } else {
-            // Two lines: a dark casing (edge) under a deep green line on top.
-            const grp = L.layerGroup();
-            const latlngs = routedCoords.map(c => [c.lat, c.lng]);
-            L.polyline(latlngs, { color: "#003b00", weight: 8, opacity: 0.95 }).addTo(grp);
-            L.polyline(latlngs, { color: "#008a00", weight: 5, opacity: 1 }).addTo(grp);
-            grp.addTo(map);
-            routeLineRef.current = grp;
-        }
+        };
+
+        draw();
+        map.on("zoomend", draw);
+        return () => {
+            map.off("zoomend", draw);
+            if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null; }
+        };
     }, [routedCoords, colorByGrade, elevations]);
 
     // Km distance markers along the route — small numbered dots every 1 km.
