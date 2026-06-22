@@ -293,9 +293,16 @@ async function fetchLegRoute(a, b, profile = "shortest") {
     } catch (e) { return null; }
 }
 
-// Cut-through hybrid: route each leg separately; if a SHORT leg (<250m crow-flies) detours
-// way too far (>2.5×) — a sign the map has a small "closed" path that's really passable — or
-// fails entirely, bridge it with a straight line. Long, legitimately winding legs are untouched.
+// Cut-through hybrid: route each leg separately; if a leg fails, or its snapped path detours
+// unreasonably far vs. crow-flies, bridge it with a straight line — a sign the point sits on a
+// private/unrouted lane (e.g. inside a gated estate) that the router won't enter, or a small
+// "closed but passable" gap. The detour tolerance scales with gap size so genuinely winding
+// long legs are kept, while short gaps get the tightest threshold.
+function detourLimit(straightM) {
+    if (straightM < 250) return 2.5;   // short gap: likely closed-but-passable
+    if (straightM < 800) return 3.5;
+    return 5;                          // long leg: only bridge truly extreme detours
+}
 async function fetchSnapHybrid(waypoints, profile = "shortest") {
     if (waypoints.length < 2) return null;
     const legs = await Promise.all(
@@ -307,7 +314,7 @@ async function fetchSnapHybrid(waypoints, profile = "shortest") {
         const a = waypoints[i], b = waypoints[i + 1];
         const straight = haversine(a, b);
         const leg = legs[i];
-        const blocked = !leg || (straight < 250 && leg.dist > straight * 2.5);
+        const blocked = !leg || leg.dist > straight * detourLimit(straight);
         if (blocked) {
             allCoords.push({ lat: b.lat, lng: b.lng });
             actual += straight;
