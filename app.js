@@ -299,9 +299,10 @@ async function fetchLegRoute(a, b, profile = "shortest") {
 // "closed but passable" gap. The detour tolerance scales with gap size so genuinely winding
 // long legs are kept, while short gaps get the tightest threshold.
 function detourLimit(straightM) {
-    if (straightM < 250) return 2.5;   // short gap: likely closed-but-passable
-    if (straightM < 800) return 3.5;
-    return 5;                          // long leg: only bridge truly extreme detours
+    if (straightM < 250) return 2.0;    // short gap: likely closed-but-passable
+    if (straightM < 800) return 2.5;
+    if (straightM < 2500) return 3.5;
+    return 5;                           // long leg: only bridge truly extreme detours
 }
 async function fetchSnapHybrid(waypoints, profile = "shortest") {
     if (waypoints.length < 2) return null;
