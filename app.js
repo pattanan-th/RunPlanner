@@ -1665,12 +1665,14 @@ function App() {
                                 <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-none">{tr("เวลารวม", "Total time")}</div>
                                 <div className="text-2xl font-bold text-purple-600 leading-tight">{estimatedSeconds > 0 ? fmtTime(estimatedSeconds) : "–"}</div>
                             </div>
-                            {(gain > 0 || loss > 0) && (
-                                <div>
-                                    <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-none">{tr("ความชัน", "Elev.")}</div>
+                            <div>
+                                <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-none">{tr("ความชัน", "Elev.")}</div>
+                                {(gain > 0 || loss > 0) ? (
                                     <div className="text-sm font-semibold leading-tight"><span className="text-orange-600">↑{Math.round(gain)}</span> <span className="text-blue-600">↓{Math.round(loss)}</span></div>
-                                </div>
-                            )}
+                                ) : (
+                                    <div className="text-sm font-semibold leading-tight text-gray-400">↑– ↓–</div>
+                                )}
+                            </div>
                         </div>
                         <div className="flex items-center gap-1">
                             <span className="text-[10px] text-gray-500 dark:text-gray-400 mr-1">Pace</span>
