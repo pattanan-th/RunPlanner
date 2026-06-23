@@ -100,6 +100,25 @@ function elevationLoss(elevations) {
     }
     return desc;
 }
+// Average and max |grade| (%) along a route, from sampled elevations + total distance.
+// Grades are 3-point smoothed so coarse-sample noise doesn't inflate the max.
+function gradeStats(elevations, distanceM) {
+    if (!elevations || elevations.length < 2 || !distanceM) return { avg: 0, max: 0 };
+    const n = elevations.length;
+    const segM = distanceM / (n - 1);
+    const raw = [];
+    for (let i = 1; i < n; i++) raw.push(((elevations[i] - elevations[i - 1]) / segM) * 100);
+    const sm = raw.map((_, i) => {
+        const a = raw[i - 1], c = raw[i + 1];
+        let s = raw[i], k = 1;
+        if (a !== undefined) { s += a; k++; }
+        if (c !== undefined) { s += c; k++; }
+        return s / k;
+    });
+    let sum = 0, max = 0;
+    for (const g of sm) { const ag = Math.abs(g); sum += ag; if (ag > max) max = ag; }
+    return { avg: sum / (sm.length || 1), max };
+}
 function perpendicularDistance(p, a, b) {
     if (a.lat === b.lat && a.lng === b.lng) return haversine(p, a);
     const dx = b.lng - a.lng, dy = b.lat - a.lat;
@@ -778,6 +797,53 @@ function DetailedElevationChart({ elevations, totalDistanceM }) {
     );
 }
 
+const COMPARE_COLORS = ["#10b981", "#ef4444", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#6b7280"];
+
+// Overlay of several routes' climb profiles on one chart. X = % of each route's distance (so
+// routes of different lengths line up); Y = elevation above each route's own low point (so the
+// shape of the climb compares regardless of absolute altitude).
+function CompareChart({ routes }) {
+    if (!routes || routes.length === 0) return null;
+    const W = 1000, H = 300, padL = 38, padR = 12, padT = 12, padB = 26;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const series = routes.map(r => {
+        const mn = Math.min(...r.elevations);
+        return { ...r, rel: r.elevations.map(e => e - mn) };
+    });
+    const gmax = Math.max(1, ...series.map(s => Math.max(...s.rel)));
+    const xAt = (i, n) => padL + (n > 1 ? (i / (n - 1)) : 0) * plotW;
+    const yAt = (v) => padT + (1 - v / gmax) * plotH;
+    const yTicks = [0, 0.5, 1].map(t => gmax * t);
+    const xTicks = [0, 25, 50, 75, 100];
+    return (
+        <div className="w-full">
+            <svg viewBox={`0 0 ${W} ${H}`} className="block w-full" style={{ height: "auto" }}>
+                {yTicks.map((v, i) => (
+                    <g key={`y${i}`}>
+                        <line x1={padL} y1={yAt(v)} x2={padL + plotW} y2={yAt(v)} stroke="#9ca3af" strokeWidth="0.5" strokeOpacity="0.35" />
+                        <text x={padL - 5} y={yAt(v) + 3} textAnchor="end" fontSize="11" fill="#9ca3af">{Math.round(v)}</text>
+                    </g>
+                ))}
+                {xTicks.map((p, i) => (
+                    <text key={`x${i}`} x={padL + (p / 100) * plotW} y={H - 8} textAnchor="middle" fontSize="11" fill="#9ca3af">{p}%</text>
+                ))}
+                {series.map((s, si) => {
+                    const n = s.rel.length;
+                    const pts = s.rel.map((v, i) => `${xAt(i, n).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ");
+                    return <polyline key={si} points={pts} fill="none" stroke={s.color} strokeWidth={s.current ? 3.5 : 2.5} strokeOpacity="0.95" strokeDasharray={s.current ? "" : ""} />;
+                })}
+            </svg>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[11px]">
+                {series.map((s, si) => (
+                    <span key={si} className="inline-flex items-center gap-1 text-gray-700 dark:text-gray-300">
+                        <span className="inline-block w-3 h-0.5 rounded" style={{ background: s.color }} />{s.name}{s.current ? ` (${tr("ปัจจุบัน", "current")})` : ""}
+                    </span>
+                ))}
+            </div>
+        </div>
+    );
+}
+
 const LOOP_PRESETS = [
     { km: 5 }, { km: 10 }, { km: 21 },
 ];
@@ -849,6 +915,14 @@ function App() {
     const [elevations, setElevations] = useState([]);
     const [loadingElev, setLoadingElev] = useState(false);
     const [elevModalOpen, setElevModalOpen] = useState(false); // full-screen detailed elevation graph
+    const [compareOpen, setCompareOpen] = useState(false);     // route-comparison modal
+    const [savedRoutes, setSavedRoutes] = useState(() => {
+        try { return JSON.parse(localStorage.getItem("routewing.compareRoutes") || "[]"); } catch { return []; }
+    });
+    const persistSaved = (list) => {
+        setSavedRoutes(list);
+        try { localStorage.setItem("routewing.compareRoutes", JSON.stringify(list)); } catch {}
+    };
 
     const [paceMin, setPaceMin] = useState(6);
     const [paceSec, setPaceSec] = useState(0);
@@ -1473,6 +1547,17 @@ function App() {
         if (via.length) url += `&waypoints=${via.map(fmt).join("|")}`;
         window.open(url, "_blank", "noopener");
     };
+
+    // Save the current route's elevation profile for side-by-side comparison (persisted).
+    const saveForCompare = () => {
+        if (elevations.length < 2 || plannedDistance < 1) { showToast(tr("ยังไม่มีข้อมูลความสูง", "No elevation data yet")); return; }
+        const entry = { id: Date.now(), name: `${tr("เส้นทาง", "Route")} ${savedRoutes.length + 1}`, distanceM: plannedDistance, elevations: elevations.slice() };
+        persistSaved([...savedRoutes, entry]);
+        showToast(tr("บันทึกเพื่อเทียบแล้ว", "Saved for comparison"));
+        setCompareOpen(true);
+    };
+    const renameSaved = (id, name) => persistSaved(savedRoutes.map(r => (r.id === id ? { ...r, name } : r)));
+    const deleteSaved = (id) => persistSaved(savedRoutes.filter(r => r.id !== id));
     // Import a GPX file: parse its track, downsample to keep the editable marker count sane,
     // and load it as a freehand route (line follows the imported track, every point draggable).
     const importGpx = (file) => {
@@ -1903,6 +1988,16 @@ function App() {
                                             className="mt-1.5 w-full py-1.5 rounded-md bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs font-medium active:bg-green-100">
                                             🔍 {tr("ดูกราฟละเอียด", "Detailed graph")}
                                         </button>
+                                        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                                            <button onClick={saveForCompare}
+                                                className="py-1.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs font-medium active:bg-gray-200">
+                                                ➕ {tr("บันทึกเทียบ", "Save")}
+                                            </button>
+                                            <button onClick={() => setCompareOpen(true)}
+                                                className="py-1.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs font-medium active:bg-gray-200">
+                                                📊 {tr("เทียบเส้นทาง", "Compare")}{savedRoutes.length > 0 ? ` (${savedRoutes.length})` : ""}
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -1997,6 +2092,88 @@ function App() {
                     </div>
                 </div>
             )}
+
+            {/* Route comparison modal */}
+            {compareOpen && (() => {
+                const current = elevations.length >= 2 && plannedDistance > 0
+                    ? { id: "__current", name: tr("เส้นทางปัจจุบัน", "Current route"), distanceM: plannedDistance, elevations, current: true }
+                    : null;
+                const all = current ? [...savedRoutes, current] : savedRoutes.slice();
+                const withColor = all.map((r, i) => ({ ...r, color: COMPARE_COLORS[i % COMPARE_COLORS.length] }));
+                return (
+                    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 p-3"
+                         onClick={() => setCompareOpen(false)}>
+                        <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-white dark:bg-gray-900 rounded-xl shadow-2xl"
+                             onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 dark:border-gray-700 sticky top-0 bg-white dark:bg-gray-900">
+                                <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">📊 {tr("เทียบเส้นทาง", "Compare routes")}</span>
+                                <button onClick={() => setCompareOpen(false)}
+                                    className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 active:bg-gray-200">✕</button>
+                            </div>
+                            {withColor.length === 0 ? (
+                                <div className="p-8 text-center text-sm text-gray-400">
+                                    {tr("ยังไม่มีเส้นทางให้เทียบ — ลากเส้นแล้วกด ➕ บันทึกเทียบ", "No routes yet — draw a route and tap ➕ Save")}
+                                </div>
+                            ) : (
+                                <div className="p-4">
+                                    <CompareChart routes={withColor} />
+                                    <div className="overflow-x-auto mt-3">
+                                        <table className="w-full text-xs whitespace-nowrap">
+                                            <thead>
+                                                <tr className="text-gray-500 dark:text-gray-400 text-left border-b border-gray-100 dark:border-gray-700">
+                                                    <th className="py-1 pr-2 font-medium">{tr("เส้นทาง", "Route")}</th>
+                                                    <th className="py-1 px-2 font-medium text-right">{tr("ระยะ", "Dist")}</th>
+                                                    <th className="py-1 px-2 font-medium text-right">↑{tr("รวม", "gain")}</th>
+                                                    <th className="py-1 px-2 font-medium text-right">{tr("ขึ้น/กม.", "gain/km")}</th>
+                                                    <th className="py-1 px-2 font-medium text-right">{tr("ชันเฉลี่ย", "avg %")}</th>
+                                                    <th className="py-1 px-2 font-medium text-right">{tr("ชันสุด", "max %")}</th>
+                                                    <th className="py-1 pl-2"></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {withColor.map((r) => {
+                                                    const g = elevationGain(r.elevations);
+                                                    const gpk = r.distanceM > 0 ? g / (r.distanceM / 1000) : 0;
+                                                    const gs = gradeStats(r.elevations, r.distanceM);
+                                                    return (
+                                                        <tr key={r.id} className="border-b border-gray-50 dark:border-gray-800">
+                                                            <td className="py-1.5 pr-2">
+                                                                <span className="inline-flex items-center gap-1.5">
+                                                                    <span className="inline-block w-3 h-3 rounded-full shrink-0" style={{ background: r.color }} />
+                                                                    {r.current ? (
+                                                                        <span className="text-gray-800 dark:text-gray-100">{r.name}</span>
+                                                                    ) : (
+                                                                        <input value={r.name} onChange={(e) => renameSaved(r.id, e.target.value)}
+                                                                            className="w-24 bg-transparent border-b border-dashed border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100 focus:outline-none" />
+                                                                    )}
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-1.5 px-2 text-right tabular-nums">{(r.distanceM / 1000).toFixed(2)}{tr("กม", "k")}</td>
+                                                            <td className="py-1.5 px-2 text-right tabular-nums text-green-700 dark:text-green-400">{Math.round(g)}{tr("ม", "m")}</td>
+                                                            <td className="py-1.5 px-2 text-right tabular-nums font-semibold">{Math.round(gpk)}</td>
+                                                            <td className="py-1.5 px-2 text-right tabular-nums">{gs.avg.toFixed(1)}</td>
+                                                            <td className="py-1.5 px-2 text-right tabular-nums">{gs.max.toFixed(1)}</td>
+                                                            <td className="py-1.5 pl-2 text-right">
+                                                                {!r.current && (
+                                                                    <button onClick={() => deleteSaved(r.id)} className="text-red-500 active:text-red-700">✕</button>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <p className="mt-3 text-[10px] text-gray-400 leading-snug">
+                                        {tr("กราฟเทียบรูปทรงการไต่ (แกน X = % ระยะ) — ความชันจริงดูที่ ขึ้น/กม. และ ชันสุด",
+                                            "Chart compares climb shape (X = % distance) — for true steepness compare gain/km and max %.")}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                );
+            })()}
 
             {toast && (
                 <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-2 rounded-full text-sm shadow-lg z-30">
