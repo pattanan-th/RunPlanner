@@ -1694,9 +1694,50 @@ function App() {
                 <header className="bg-white dark:bg-gray-900 shadow-sm px-4 py-2">
                     <div className="flex items-center gap-2 mb-1.5">
                         <div className="text-2xl">🏃</div>
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-0">
                             <div className="font-bold text-gray-800 dark:text-gray-100 leading-tight text-sm">RouteWing</div>
                             <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">{tr("วางแผนเส้นทางวิ่ง", "Plan your running route")}</div>
+                        </div>
+                        {/* Settings & files — moved to the header top-right */}
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                            <button onClick={toggleLang} title={tr("สลับภาษา", "Toggle language")}
+                                className="h-9 px-2 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+                                <span style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.3px" }}>
+                                    <span style={{ color: lang === "th" ? (theme === "dark" ? "#e5e7eb" : "#1f2937") : "#b4b2a9" }}>TH</span>
+                                    <span style={{ color: "#b4b2a9" }}>/</span>
+                                    <span style={{ color: lang === "en" ? (theme === "dark" ? "#e5e7eb" : "#1f2937") : "#b4b2a9" }}>EN</span>
+                                </span>
+                            </button>
+                            <button onClick={toggleTheme} title={theme === "dark" ? tr("โหมดสว่าง", "Light mode") : tr("โหมดมืด", "Dark mode")}
+                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg">{theme === "dark" ? "☀️" : "🌙"}</button>
+                            <button onClick={shareRoute} disabled={waypoints.length < 2} title={tr("แชร์ลิงก์", "Share link")}
+                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg disabled:opacity-40">🔗</button>
+                            <button onClick={exportGpx} disabled={routedCoords.length < 2} title={tr("ดาวน์โหลด GPX", "Download GPX")}
+                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex flex-col items-center justify-center leading-none disabled:opacity-40">
+                                <span style={{ fontSize: "7px", fontWeight: 700, color: "#1f6feb" }}>GPX</span>
+                                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 21 L4 12 L9 12 L9 4 L15 4 L15 12 L20 12 Z" fill="#1f6feb" /></svg>
+                            </button>
+                            <button onClick={() => fileInputRef.current && fileInputRef.current.click()} title={tr("นำเข้า GPX", "Import GPX")}
+                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex flex-col items-center justify-center leading-none">
+                                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 3 L20 12 L15 12 L15 20 L9 20 L9 12 L4 12 Z" fill="#00a000" /></svg>
+                                <span style={{ fontSize: "7px", fontWeight: 700, color: "#00a000" }}>GPX</span>
+                            </button>
+                            <input ref={fileInputRef} type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml"
+                                className="hidden"
+                                onChange={(e) => { importGpx(e.target.files[0]); e.target.value = ""; }} />
+                            <button onClick={openInGoogleMaps} disabled={routedCoords.length < 2 && waypoints.length < 2} title={tr("เปิดใน Google Maps", "Open in Google Maps")}
+                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center disabled:opacity-40">
+                                <svg viewBox="0 0 24 24" width="18" height="18" aria-label="Google Maps">
+                                    <defs><clipPath id="gmapsPin"><path d="M12 2c-4.42 0-8 3.58-8 8 0 5.25 8 12 8 12s8-6.75 8-12c0-4.42-3.58-8-8-8z"/></clipPath></defs>
+                                    <g clipPath="url(#gmapsPin)">
+                                        <rect x="0" y="0" width="24" height="24" fill="#4285F4"/>
+                                        <path d="M0 0 H24 V7 H0 Z" fill="#EA4335"/>
+                                        <path d="M24 6 L24 24 L9 24 Z" fill="#FBBC04"/>
+                                        <path d="M0 9 L13 24 L0 24 Z" fill="#34A853"/>
+                                    </g>
+                                    <circle cx="12" cy="9.5" r="3" fill="#fff"/>
+                                </svg>
+                            </button>
                         </div>
                     </div>
                     <div className="flex items-end justify-between gap-3 flex-wrap">
@@ -1822,47 +1863,7 @@ function App() {
                                 className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 active:bg-gray-200">✕</button>
                         </div>
 
-                        {/* Settings & files row (moved off the floating rail to declutter mobile) */}
-                        <div className="flex items-center justify-between gap-1">
-                            <button onClick={toggleLang} title={tr("สลับภาษา", "Toggle language")}
-                                className="h-9 px-2 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
-                                <span style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.3px" }}>
-                                    <span style={{ color: lang === "th" ? (theme === "dark" ? "#e5e7eb" : "#1f2937") : "#b4b2a9" }}>TH</span>
-                                    <span style={{ color: "#b4b2a9" }}>/</span>
-                                    <span style={{ color: lang === "en" ? (theme === "dark" ? "#e5e7eb" : "#1f2937") : "#b4b2a9" }}>EN</span>
-                                </span>
-                            </button>
-                            <button onClick={toggleTheme} title={theme === "dark" ? tr("โหมดสว่าง", "Light mode") : tr("โหมดมืด", "Dark mode")}
-                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg">{theme === "dark" ? "☀️" : "🌙"}</button>
-                            <button onClick={shareRoute} disabled={waypoints.length < 2} title={tr("แชร์ลิงก์", "Share link")}
-                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-lg disabled:opacity-40">🔗</button>
-                            <button onClick={exportGpx} disabled={routedCoords.length < 2} title={tr("ดาวน์โหลด GPX", "Download GPX")}
-                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex flex-col items-center justify-center leading-none disabled:opacity-40">
-                                <span style={{ fontSize: "7px", fontWeight: 700, color: "#1f6feb" }}>GPX</span>
-                                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 21 L4 12 L9 12 L9 4 L15 4 L15 12 L20 12 Z" fill="#1f6feb" /></svg>
-                            </button>
-                            <button onClick={() => fileInputRef.current && fileInputRef.current.click()} title={tr("นำเข้า GPX", "Import GPX")}
-                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex flex-col items-center justify-center leading-none">
-                                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 3 L20 12 L15 12 L15 20 L9 20 L9 12 L4 12 Z" fill="#00a000" /></svg>
-                                <span style={{ fontSize: "7px", fontWeight: 700, color: "#00a000" }}>GPX</span>
-                            </button>
-                            <input ref={fileInputRef} type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml"
-                                className="hidden"
-                                onChange={(e) => { importGpx(e.target.files[0]); e.target.value = ""; }} />
-                            <button onClick={openInGoogleMaps} disabled={routedCoords.length < 2 && waypoints.length < 2} title={tr("เปิดใน Google Maps", "Open in Google Maps")}
-                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center disabled:opacity-40">
-                                <svg viewBox="0 0 24 24" width="18" height="18" aria-label="Google Maps">
-                                    <defs><clipPath id="gmapsPin"><path d="M12 2c-4.42 0-8 3.58-8 8 0 5.25 8 12 8 12s8-6.75 8-12c0-4.42-3.58-8-8-8z"/></clipPath></defs>
-                                    <g clipPath="url(#gmapsPin)">
-                                        <rect x="0" y="0" width="24" height="24" fill="#4285F4"/>
-                                        <path d="M0 0 H24 V7 H0 Z" fill="#EA4335"/>
-                                        <path d="M24 6 L24 24 L9 24 Z" fill="#FBBC04"/>
-                                        <path d="M0 9 L13 24 L0 24 Z" fill="#34A853"/>
-                                    </g>
-                                    <circle cx="12" cy="9.5" r="3" fill="#fff"/>
-                                </svg>
-                            </button>
-                        </div>
+                        {/* (Settings & files row moved to the header top-right) */}
 
                         {/* Loop generator */}
                         <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
