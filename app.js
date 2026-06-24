@@ -914,6 +914,7 @@ function App() {
 
     const [elevations, setElevations] = useState([]);
     const [loadingElev, setLoadingElev] = useState(false);
+    const [laps, setLaps] = useState(1);                       // run the drawn loop N times (cumulative distance/elevation)
     const [elevModalOpen, setElevModalOpen] = useState(false); // full-screen detailed elevation graph
     const [compareOpen, setCompareOpen] = useState(false);     // route-comparison modal
     const [savedRoutes, setSavedRoutes] = useState(() => {
@@ -1338,10 +1339,20 @@ function App() {
     }, [uiVisible, bottomCollapsed, editorOpen, paceOpen]);
 
     const plannedDistance = useMemo(() => totalDistance(routedCoords), [routedCoords]);
-    const gain = useMemo(() => elevationGain(elevations), [elevations]);
-    const loss = useMemo(() => elevationLoss(elevations), [elevations]);
+    // Laps: repeat the drawn loop N times for cumulative distance/elevation (e.g. a 5k loop ×2 = 10k).
+    // The map/route geometry stays a single loop; only totals and the elevation profile are multiplied.
+    const lapCount = Math.max(1, laps);
+    const lapElevations = useMemo(() => {
+        if (lapCount <= 1 || elevations.length < 2) return elevations;
+        let out = elevations.slice();
+        for (let k = 1; k < lapCount; k++) out = out.concat(elevations.slice(1));
+        return out;
+    }, [elevations, lapCount]);
+    const lapDistance = plannedDistance * lapCount;
+    const gain = useMemo(() => elevationGain(lapElevations), [lapElevations]);
+    const loss = useMemo(() => elevationLoss(lapElevations), [lapElevations]);
     const paceSecPerKm = (Number(paceMin) || 0) * 60 + (Number(paceSec) || 0);
-    const estimatedSeconds = plannedDistance > 0 ? (plannedDistance / 1000) * paceSecPerKm : 0;
+    const estimatedSeconds = lapDistance > 0 ? (lapDistance / 1000) * paceSecPerKm : 0;
 
     useEffect(() => {
         if (routedCoords.length < 2) {
@@ -1445,6 +1456,7 @@ function App() {
         setWaypoints([]);
         setElevations([]);
         setLoopStart(null);
+        setLaps(1);
         location.hash = "";
         showToast(tr("ล้างเส้นทางแล้ว", "Route cleared"));
     };
@@ -1550,8 +1562,9 @@ function App() {
 
     // Save the current route's elevation profile for side-by-side comparison (persisted).
     const saveForCompare = () => {
-        if (elevations.length < 2 || plannedDistance < 1) { showToast(tr("ยังไม่มีข้อมูลความสูง", "No elevation data yet")); return; }
-        const entry = { id: Date.now(), name: `${tr("เส้นทาง", "Route")} ${savedRoutes.length + 1}`, distanceM: plannedDistance, elevations: elevations.slice() };
+        if (lapElevations.length < 2 || lapDistance < 1) { showToast(tr("ยังไม่มีข้อมูลความสูง", "No elevation data yet")); return; }
+        const lapTag = lapCount > 1 ? ` ×${lapCount}` : "";
+        const entry = { id: Date.now(), name: `${tr("เส้นทาง", "Route")} ${savedRoutes.length + 1}${lapTag}`, distanceM: lapDistance, elevations: lapElevations.slice() };
         persistSaved([...savedRoutes, entry]);
         showToast(tr("บันทึกเพื่อเทียบแล้ว", "Saved for comparison"));
         setCompareOpen(true);
@@ -1658,8 +1671,10 @@ function App() {
                     <div className="flex items-end justify-between gap-3 flex-wrap">
                         <div className="flex items-end gap-4">
                             <div>
-                                <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-none">{tr("ระยะทาง", "Distance")}</div>
-                                <div className="text-2xl font-bold text-green-600 leading-tight">{loadingRoute ? "..." : fmtDistance(plannedDistance)}</div>
+                                <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-none">
+                                    {tr("ระยะทาง", "Distance")}{lapCount > 1 ? <span className="text-green-600 font-semibold"> ×{lapCount} {tr("รอบ", "laps")}</span> : null}
+                                </div>
+                                <div className="text-2xl font-bold text-green-600 leading-tight">{loadingRoute ? "..." : fmtDistance(lapDistance)}</div>
                             </div>
                             <div>
                                 <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-none">{tr("เวลารวม", "Total time")}</div>
@@ -1672,6 +1687,17 @@ function App() {
                                 ) : (
                                     <div className="text-sm font-semibold leading-tight text-gray-400">↑– ↓–</div>
                                 )}
+                            </div>
+                            {/* Laps: repeat the loop N times for cumulative totals */}
+                            <div>
+                                <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-none">{tr("รอบ", "Laps")}</div>
+                                <div className="flex items-center gap-1 mt-0.5">
+                                    <button onClick={() => setLaps(l => Math.max(1, l - 1))} disabled={lapCount <= 1}
+                                        className="w-6 h-6 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-base leading-none flex items-center justify-center disabled:opacity-40 active:bg-gray-200">−</button>
+                                    <span className="w-5 text-center text-sm font-bold tabular-nums text-gray-800 dark:text-gray-100">{lapCount}</span>
+                                    <button onClick={() => setLaps(l => Math.min(20, l + 1))} disabled={plannedDistance < 1}
+                                        className="w-6 h-6 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-base leading-none flex items-center justify-center disabled:opacity-40 active:bg-gray-200">+</button>
+                                </div>
                             </div>
                         </div>
                         <div className="flex items-center gap-1">
@@ -1973,37 +1999,41 @@ function App() {
                             </div>
                         )}
 
-                        {/* Elevation profile (embedded in the panel) */}
-                        {elevations.length >= 2 && (
-                            <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                                <button onClick={() => setElevCollapsed(c => !c)}
-                                    className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 text-sm font-medium text-gray-800 dark:text-gray-100">
-                                    <span>⛰️ {tr("ความชัน", "Elevation")} <span className="text-xs text-gray-500 dark:text-gray-400">↑{Math.round(gain)} ↓{Math.round(loss)}{tr("ม.", "m")}</span></span>
-                                    <span className="text-gray-400 text-xs">{elevCollapsed ? "▸" : "▾"}</span>
-                                </button>
-                                {!elevCollapsed && (
-                                    <div className="p-2 bg-white dark:bg-gray-900">
-                                        <div style={{ height: 110 }}>
-                                            <ElevationChart elevations={elevations} totalDistanceM={plannedDistance} />
-                                        </div>
-                                        <button onClick={() => setElevModalOpen(true)}
-                                            className="mt-1.5 w-full py-1.5 rounded-md bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs font-medium active:bg-green-100">
-                                            🔍 {tr("ดูกราฟละเอียด", "Detailed graph")}
-                                        </button>
-                                        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                                            <button onClick={saveForCompare}
-                                                className="py-1.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs font-medium active:bg-gray-200">
-                                                ➕ {tr("บันทึกเทียบ", "Save")}
-                                            </button>
-                                            <button onClick={() => setCompareOpen(true)}
-                                                className="py-1.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs font-medium active:bg-gray-200">
-                                                📊 {tr("เทียบเส้นทาง", "Compare")}{savedRoutes.length > 0 ? ` (${savedRoutes.length})` : ""}
-                                            </button>
-                                        </div>
+                        {/* Elevation profile (always shown; standby placeholder before a route exists) */}
+                        <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                            <button onClick={() => setElevCollapsed(c => !c)}
+                                className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 text-sm font-medium text-gray-800 dark:text-gray-100">
+                                <span>⛰️ {tr("ความชัน", "Elevation")} <span className="text-xs text-gray-500 dark:text-gray-400">{(gain > 0 || loss > 0) ? `↑${Math.round(gain)} ↓${Math.round(loss)}${tr("ม.", "m")}` : "↑– ↓–"}</span></span>
+                                <span className="text-gray-400 text-xs">{elevCollapsed ? "▸" : "▾"}</span>
+                            </button>
+                            {!elevCollapsed && (
+                                <div className="p-2 bg-white dark:bg-gray-900">
+                                    <div style={{ height: 110 }}>
+                                        {lapElevations.length >= 2 ? (
+                                            <ElevationChart elevations={lapElevations} totalDistanceM={lapDistance} />
+                                        ) : (
+                                            <div className="h-full flex items-center justify-center text-xs text-gray-400 text-center px-2">
+                                                {loadingElev ? tr("กำลังโหลดความสูง...", "Loading elevation...") : tr("ลากเส้นทางเพื่อดูกราฟความชัน", "Draw a route to see the elevation graph")}
+                                            </div>
+                                        )}
                                     </div>
-                                )}
-                            </div>
-                        )}
+                                    <button onClick={() => setElevModalOpen(true)} disabled={lapElevations.length < 2}
+                                        className="mt-1.5 w-full py-1.5 rounded-md bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs font-medium active:bg-green-100 disabled:opacity-40">
+                                        🔍 {tr("ดูกราฟละเอียด", "Detailed graph")}
+                                    </button>
+                                    <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                                        <button onClick={saveForCompare} disabled={lapElevations.length < 2}
+                                            className="py-1.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs font-medium active:bg-gray-200 disabled:opacity-40">
+                                            ➕ {tr("บันทึกเทียบ", "Save")}
+                                        </button>
+                                        <button onClick={() => setCompareOpen(true)}
+                                            className="py-1.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs font-medium active:bg-gray-200">
+                                            📊 {tr("เทียบเส้นทาง", "Compare")}{savedRoutes.length > 0 ? ` (${savedRoutes.length})` : ""}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
 
                         <div className="grid grid-cols-3 gap-1.5">
                             <button onClick={undo} disabled={undoStack.current.length === 0}
@@ -2089,7 +2119,7 @@ function App() {
                                 className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 active:bg-gray-200">✕</button>
                         </div>
                         <div className="p-4">
-                            <DetailedElevationChart elevations={elevations} totalDistanceM={plannedDistance} />
+                            <DetailedElevationChart elevations={lapElevations} totalDistanceM={lapDistance} />
                         </div>
                     </div>
                 </div>
@@ -2097,8 +2127,8 @@ function App() {
 
             {/* Route comparison modal */}
             {compareOpen && (() => {
-                const current = elevations.length >= 2 && plannedDistance > 0
-                    ? { id: "__current", name: tr("เส้นทางปัจจุบัน", "Current route"), distanceM: plannedDistance, elevations, current: true }
+                const current = lapElevations.length >= 2 && lapDistance > 0
+                    ? { id: "__current", name: `${tr("เส้นทางปัจจุบัน", "Current route")}${lapCount > 1 ? ` ×${lapCount}` : ""}`, distanceM: lapDistance, elevations: lapElevations, current: true }
                     : null;
                 const all = current ? [...savedRoutes, current] : savedRoutes.slice();
                 const withColor = all.map((r, i) => ({ ...r, color: COMPARE_COLORS[i % COMPARE_COLORS.length] }));
