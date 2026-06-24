@@ -1229,9 +1229,9 @@ function App() {
                     L.polyline([off[i - 1], off[i]], { color: gradeColor(bandGrade[band] || 0), weight: 3, opacity: 0.97 }).addTo(grp);
                 }
             } else {
-                // Thin deep-green line over a dark casing.
-                L.polyline(off, { color: "#003b00", weight: 5, opacity: 0.95 }).addTo(grp);
-                L.polyline(off, { color: "#008a00", weight: 3, opacity: 1 }).addTo(grp);
+                // Thin indigo line over a dark casing (distinct from the grade gradient's colors).
+                L.polyline(off, { color: "#312e81", weight: 5, opacity: 0.95 }).addTo(grp);
+                L.polyline(off, { color: "#4f46e5", weight: 3, opacity: 1 }).addTo(grp);
             }
             grp.addTo(map);
             routeLineRef.current = grp;
