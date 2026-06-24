@@ -323,10 +323,14 @@ function detourLimit(straightM) {
     if (straightM < 2500) return 3.5;
     return 5;                           // long leg: only bridge truly extreme detours
 }
-async function fetchSnapHybrid(waypoints, profile = "shortest") {
+// Per-leg routing honoring each waypoint's snap flag. A leg whose destination waypoint is freehand
+// (snap === false) is drawn as a straight line; snap legs are routed via BRouter. With cutThrough,
+// a snap leg that fails or detours unreasonably is bridged straight (see detourLimit). This lets a
+// single route mix snapped and freehand sections — draw on roads, then freehand into a private area.
+async function fetchMixedRoute(waypoints, profile = "shortest", cutThrough = true) {
     if (waypoints.length < 2) return null;
     const legs = await Promise.all(
-        waypoints.slice(0, -1).map((a, i) => fetchLegRoute(a, waypoints[i + 1], profile))
+        waypoints.slice(0, -1).map((a, i) => (waypoints[i + 1].snap === false ? Promise.resolve(null) : fetchLegRoute(a, waypoints[i + 1], profile)))
     );
     let allCoords = [{ lat: waypoints[0].lat, lng: waypoints[0].lng }];
     let actual = 0;
@@ -334,8 +338,9 @@ async function fetchSnapHybrid(waypoints, profile = "shortest") {
         const a = waypoints[i], b = waypoints[i + 1];
         const straight = haversine(a, b);
         const leg = legs[i];
-        const blocked = !leg || leg.dist > straight * detourLimit(straight);
-        if (blocked) {
+        const freehand = b.snap === false;
+        const bridge = freehand || !leg || (cutThrough && leg.dist > straight * detourLimit(straight));
+        if (bridge) {
             allCoords.push({ lat: b.lat, lng: b.lng });
             actual += straight;
         } else {
@@ -992,7 +997,7 @@ function App() {
         if (location.hash.startsWith("#r=")) {
             const decoded = decodeRoute(location.hash.slice(3));
             if (decoded.length > 0) {
-                setWaypoints(decoded);
+                setWaypoints(decoded.map(p => ({ ...p, snap: false })));
                 setSnapToRoads(false);
                 showToast(`${tr("โหลดเส้นทางที่แชร์", "Loaded shared route")} (${decoded.length} ${tr("จุด", "pts")})`);
             }
@@ -1071,12 +1076,14 @@ function App() {
                     ? `✓ ${typeName} ${fmtDistance(result.actual)} (${result.n} ${tr("จุด", "pts")})`
                     : `⚠ ${tr("คุณภาพต่ำ", "low quality")} ${fmtDistance(result.actual)} (${result.n} ${tr("จุด", "pts")})`);
             } else {
-                setWaypoints(prev => [...prev, pt]);
+                // Tag the new point with the current drawing mode so this leg routes (snap) or
+                // draws straight (freehand) independently of the rest of the route.
+                setWaypoints(prev => [...prev, { lat: pt.lat, lng: pt.lng, snap: snapToRoads }]);
             }
         };
         map.on("click", handler);
         return () => { map.off("click", handler); };
-    }, [loopMode, loopKm, customKm, loopPoints, generatingLoop, loopType]);
+    }, [loopMode, loopKm, customKm, loopPoints, generatingLoop, loopType, snapToRoads]);
 
     useEffect(() => {
         const map = mapInstanceRef.current;
@@ -1105,11 +1112,11 @@ function App() {
                 const ll = e.target.getLatLng();
                 setWaypoints(prev => {
                     const next = [...prev];
-                    next[i] = { lat: ll.lat, lng: ll.lng };
+                    next[i] = { ...prev[i], lat: ll.lat, lng: ll.lng };
                     if (i === 0 && next.length > 1
                         && prev[0].lat === prev[prev.length - 1].lat
                         && prev[0].lng === prev[prev.length - 1].lng) {
-                        next[next.length - 1] = { lat: ll.lat, lng: ll.lng };
+                        next[next.length - 1] = { ...prev[prev.length - 1], lat: ll.lat, lng: ll.lng };
                     }
                     return next;
                 });
@@ -1142,24 +1149,25 @@ function App() {
             return;
         }
 
+        // All-freehand routes need no routing — just straight lines between the points.
+        if (waypoints.every(w => w.snap === false)) {
+            setRoutedCoords(waypoints);
+            return;
+        }
+
         let cancelled = false;
         (async () => {
-            if (!snapToRoads) {
-                if (cancelled) return;
-                setRoutedCoords(waypoints);
-                return;
-            }
             setLoadingRoute(true);
-            // Manual snap uses BRouter (shortest) — roads + trails in one. "Cut through" bridges
-            // short closed gaps. Falls back to Google road routing if BRouter is unavailable.
-            const result = (cutThrough ? await fetchSnapHybrid(waypoints) : await fetchTrailRoute(waypoints))
+            // Per-leg: snap legs use BRouter (shortest); freehand legs (snap=false) are straight.
+            // "Cut through" bridges over-long detours/closed gaps. Falls back to Google if needed.
+            const result = await fetchMixedRoute(waypoints, "shortest", cutThrough)
                 || await fetchMultiWaypointRoute(waypoints);
             if (cancelled) return;
             setLoadingRoute(false);
             setRoutedCoords(result ? result.allCoords : waypoints);
         })();
         return () => { cancelled = true; };
-    }, [waypoints, snapToRoads, routeProfile, cutThrough]);
+    }, [waypoints, routeProfile, cutThrough]);
 
     // Draw the route line. Plain green, or — when colorByGrade is on and elevation data exists —
     // split into segments colored by slope. Elevations are sampled (~100 pts), so each full-res
@@ -1449,7 +1457,7 @@ function App() {
     const closeLoop = () => {
         if (waypoints.length < 2) { showToast(tr("ต้องมีอย่างน้อย 2 จุด", "Need at least 2 points")); return; }
         if (isClosedLoopWp()) { showToast(tr("เป็นวงปิดอยู่แล้ว", "Already a closed loop")); return; }
-        setWaypoints(prev => [...prev, { ...prev[0] }]);
+        setWaypoints(prev => [...prev, { ...prev[0], snap: snapToRoads }]);
         showToast(tr("เชื่อมกลับจุดเริ่มต้นแล้ว", "Connected back to start"));
     };
     const clearRoute = () => {
@@ -1584,7 +1592,7 @@ function App() {
             if (wp.length > 200) wp = douglasPeucker(coords, 40);
             generatedRouteRef.current = null;
             setSnapToRoads(false);
-            setWaypoints(wp);
+            setWaypoints(wp.map(p => ({ ...p, snap: false })));
             const map = mapInstanceRef.current;
             if (map) map.fitBounds(coords.map(c => [c.lat, c.lng]), { padding: [40, 40] });
             showToast(`${tr("นำเข้า GPX แล้ว", "Imported GPX")} (${wp.length} ${tr("จุด", "pts")})`);
@@ -1757,7 +1765,7 @@ function App() {
                                 <button onClick={() => setSnapToRoads(false)}
                                     className={`px-2.5 py-1 text-xs font-medium ${!snapToRoads ? "bg-green-600 text-white" : "bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200"}`}>✏️ {tr("ลากเส้นตรง", "Freehand")}</button>
                             </div>
-                            <span className="flex-shrink-0 text-[11px] text-gray-400 px-1">{tr("👆 แตะแผนที่ (เกาะถนน+เทรล)", "👆 Tap map (roads + trails)")}</span>
+                            <span className="flex-shrink-0 text-[11px] text-gray-400 px-1">{tr("👆 ใช้กับจุดที่วาดต่อจากนี้ — สลับโหมดผสมในเส้นเดียวได้", "👆 Applies to new points — mix modes in one route")}</span>
                         </>
                     )}
                     {waypoints.length > 0 && (
