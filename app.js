@@ -1568,14 +1568,37 @@ function App() {
         window.open(url, "_blank", "noopener");
     };
 
-    // Save the current route's elevation profile for side-by-side comparison (persisted).
+    // Save the current route for side-by-side comparison AND later recall (persisted). Stores the
+    // lapped elevation profile for the chart/table plus the base waypoints + lap count so the route
+    // can be loaded back onto the map.
     const saveForCompare = () => {
         if (lapElevations.length < 2 || lapDistance < 1) { showToast(tr("ยังไม่มีข้อมูลความสูง", "No elevation data yet")); return; }
         const lapTag = lapCount > 1 ? ` ×${lapCount}` : "";
-        const entry = { id: Date.now(), name: `${tr("เส้นทาง", "Route")} ${savedRoutes.length + 1}${lapTag}`, distanceM: lapDistance, elevations: lapElevations.slice() };
+        const entry = {
+            id: Date.now(),
+            name: `${tr("เส้นทาง", "Route")} ${savedRoutes.length + 1}${lapTag}`,
+            distanceM: lapDistance,
+            elevations: lapElevations.slice(),
+            waypoints: waypoints.map(w => ({ lat: w.lat, lng: w.lng, snap: w.snap })),
+            laps: lapCount,
+        };
         persistSaved([...savedRoutes, entry]);
         showToast(tr("บันทึกเพื่อเทียบแล้ว", "Saved for comparison"));
         setCompareOpen(true);
+    };
+    // Load a saved route back onto the map (re-routes from its waypoints + restores lap count).
+    const loadSaved = (r) => {
+        if (!r.waypoints || r.waypoints.length < 2) {
+            showToast(tr("เส้นทางนี้บันทึกก่อนรองรับการเรียกใช้ — เรียกกลับไม่ได้", "Saved before recall support — can't load"));
+            return;
+        }
+        generatedRouteRef.current = null;
+        setLaps(r.laps || 1);
+        setWaypoints(r.waypoints.map(w => ({ ...w })));
+        setCompareOpen(false);
+        const map = mapInstanceRef.current;
+        if (map) { try { map.fitBounds(r.waypoints.map(w => [w.lat, w.lng]), { padding: [40, 40] }); } catch (e) {} }
+        showToast(tr("เรียกเส้นทางแล้ว", "Route loaded"));
     };
     const renameSaved = (id, name) => persistSaved(savedRoutes.map(r => (r.id === id ? { ...r, name } : r)));
     const deleteSaved = (id) => persistSaved(savedRoutes.filter(r => r.id !== id));
@@ -2193,9 +2216,15 @@ function App() {
                                                             <td className="py-1.5 px-2 text-right tabular-nums font-semibold">{Math.round(gpk)}</td>
                                                             <td className="py-1.5 px-2 text-right tabular-nums">{gs.avg.toFixed(1)}</td>
                                                             <td className="py-1.5 px-2 text-right tabular-nums">{gs.max.toFixed(1)}</td>
-                                                            <td className="py-1.5 pl-2 text-right">
+                                                            <td className="py-1.5 pl-2 text-right whitespace-nowrap">
                                                                 {!r.current && (
-                                                                    <button onClick={() => deleteSaved(r.id)} className="text-red-500 active:text-red-700">✕</button>
+                                                                    <>
+                                                                        <button onClick={() => loadSaved(r)} disabled={!r.waypoints || r.waypoints.length < 2}
+                                                                            title={tr("เรียกเส้นทางนี้ขึ้นแผนที่", "Load this route")}
+                                                                            className="text-green-600 active:text-green-800 disabled:opacity-30 mr-2">↩️</button>
+                                                                        <button onClick={() => deleteSaved(r.id)} title={tr("ลบ", "Delete")}
+                                                                            className="text-red-500 active:text-red-700">✕</button>
+                                                                    </>
                                                                 )}
                                                             </td>
                                                         </tr>
