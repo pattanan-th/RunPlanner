@@ -832,6 +832,9 @@ function CompareChart({ routes }) {
                 {xTicks.map((p, i) => (
                     <text key={`x${i}`} x={padL + (p / 100) * plotW} y={H - 8} textAnchor="middle" fontSize="11" fill="#9ca3af">{p}%</text>
                 ))}
+                {/* Axis titles */}
+                <text x={padL} y={9} fontSize="10" fill="#9ca3af">{tr("↑ สูง (ม.)", "↑ height (m)")}</text>
+                <text x={padL + plotW} y={H - 8} textAnchor="end" fontSize="10" fill="#9ca3af">{tr("ตำแหน่งในเส้นทาง →", "position along route →")}</text>
                 {series.map((s, si) => {
                     const n = s.rel.length;
                     const pts = s.rel.map((v, i) => `${xAt(i, n).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ");
@@ -929,6 +932,9 @@ function App() {
         setSavedRoutes(list);
         try { localStorage.setItem("routewing.compareRoutes", JSON.stringify(list)); } catch {}
     };
+    const [hiddenCompare, setHiddenCompare] = useState([]); // route ids hidden from the comparison chart
+    const toggleCompareVisible = (id) =>
+        setHiddenCompare(h => (h.includes(id) ? h.filter(x => x !== id) : [...h, id]));
 
     const [paceMin, setPaceMin] = useState(6);
     const [paceSec, setPaceSec] = useState(0);
@@ -2164,6 +2170,7 @@ function App() {
                     : null;
                 const all = current ? [...savedRoutes, current] : savedRoutes.slice();
                 const withColor = all.map((r, i) => ({ ...r, color: COMPARE_COLORS[i % COMPARE_COLORS.length] }));
+                const chartRoutes = withColor.filter(r => !hiddenCompare.includes(r.id));
                 return (
                     <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 p-3"
                          onClick={() => setCompareOpen(false)}>
@@ -2180,7 +2187,26 @@ function App() {
                                 </div>
                             ) : (
                                 <div className="p-4">
-                                    <CompareChart routes={withColor} />
+                                    {/* How to read this chart */}
+                                    <div className="mb-3 text-[11px] text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2 leading-relaxed">
+                                        {tr("แต่ละเส้น = โปรไฟล์ความสูงของ 1 เส้นทาง วางซ้อนกันเพื่อเทียบ",
+                                            "Each line = one route's elevation profile, overlaid to compare")}
+                                        <div className="mt-1">
+                                            • {tr("แกนนอน = ตำแหน่งในเส้นทาง 0–100% (เริ่ม→จบ) จึงเทียบเส้นยาวต่างกันได้",
+                                                  "X = position along route 0–100% (start→end), so different lengths line up")}<br />
+                                            • {tr("แกนตั้ง = ความสูงเหนือจุดต่ำสุดของเส้นนั้น (เมตร) — เส้นพุ่งสูง = กำลังไต่",
+                                                  "Y = height above that route's lowest point (m) — rising line = climbing")}<br />
+                                            • {tr("ดูว่าเนินอยู่ช่วงไหน/ชันแค่ไหน แล้วเทียบตัวเลขในตารางด้านล่าง",
+                                                  "See where the hills are, then compare the numbers in the table below")}
+                                        </div>
+                                    </div>
+                                    {chartRoutes.length > 0 ? (
+                                        <CompareChart routes={chartRoutes} />
+                                    ) : (
+                                        <div className="h-32 flex items-center justify-center text-xs text-gray-400">
+                                            {tr("เปิดดูอย่างน้อย 1 เส้น (กดไอคอน 👁 ในตาราง)", "Show at least one route (tap 👁 in the table)")}
+                                        </div>
+                                    )}
                                     <div className="overflow-x-auto mt-3">
                                         <table className="w-full text-xs whitespace-nowrap">
                                             <thead>
@@ -2199,8 +2225,9 @@ function App() {
                                                     const g = elevationGain(r.elevations);
                                                     const gpk = r.distanceM > 0 ? g / (r.distanceM / 1000) : 0;
                                                     const gs = gradeStats(r.elevations, r.distanceM);
+                                                    const hidden = hiddenCompare.includes(r.id);
                                                     return (
-                                                        <tr key={r.id} className="border-b border-gray-50 dark:border-gray-800">
+                                                        <tr key={r.id} className={`border-b border-gray-50 dark:border-gray-800 text-gray-700 dark:text-gray-200 ${hidden ? "opacity-40" : ""}`}>
                                                             <td className="py-1.5 pr-2">
                                                                 <span className="inline-flex items-center gap-1.5">
                                                                     <span className="inline-block w-3 h-3 rounded-full shrink-0" style={{ background: r.color }} />
@@ -2218,6 +2245,9 @@ function App() {
                                                             <td className="py-1.5 px-2 text-right tabular-nums">{gs.avg.toFixed(1)}</td>
                                                             <td className="py-1.5 px-2 text-right tabular-nums">{gs.max.toFixed(1)}</td>
                                                             <td className="py-1.5 pl-2 text-right whitespace-nowrap">
+                                                                <button onClick={() => toggleCompareVisible(r.id)}
+                                                                    title={hidden ? tr("แสดงในกราฟ", "Show in chart") : tr("ซ่อนจากกราฟ", "Hide from chart")}
+                                                                    className="mr-2 align-middle">{hidden ? "🙈" : "👁️"}</button>
                                                                 {!r.current && (
                                                                     <>
                                                                         <button onClick={() => loadSaved(r)} disabled={!r.waypoints || r.waypoints.length < 2}
@@ -2234,10 +2264,11 @@ function App() {
                                             </tbody>
                                         </table>
                                     </div>
-                                    <p className="mt-3 text-[10px] text-gray-400 leading-snug">
-                                        {tr("กราฟเทียบรูปทรงการไต่ (แกน X = % ระยะ) — ความชันจริงดูที่ ขึ้น/กม. และ ชันสุด",
-                                            "Chart compares climb shape (X = % distance) — for true steepness compare gain/km and max %.")}
-                                    </p>
+                                    <div className="mt-3 text-[10px] text-gray-500 dark:text-gray-400 leading-relaxed space-y-0.5">
+                                        <div>👁️ {tr("กดเพื่อซ่อน/แสดงเส้นในกราฟ (เลือกเทียบเฉพาะบางเส้นได้ ไม่ต้องลบ)", "tap to hide/show a route in the chart (compare just a few without deleting)")}</div>
+                                        <div><b>{tr("ขึ้น/กม.", "gain/km")}</b> = {tr("ความชันเฉลี่ยต่อระยะ — ยิ่งมากยิ่งหนัก (เทียบความชันรวมได้แม้ระยะต่างกัน)", "average climb per km — higher = harder (comparable across distances)")}</div>
+                                        <div><b>{tr("ชันสุด", "max %")}</b> = {tr("เนินที่ชันที่สุดในเส้น (%) ·", "steepest hill on the route (%) ·")} <b>{tr("ชันเฉลี่ย", "avg %")}</b> = {tr("ความชันเฉลี่ยทั้งเส้น (%)", "average grade over the whole route (%)")}</div>
+                                    </div>
                                 </div>
                             )}
                         </div>
