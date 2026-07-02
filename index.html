@@ -2,6 +2,10 @@
 <html lang="th">
 <head>
     <meta charset="UTF-8">
+    <!-- Resolve all relative asset URLs (app.js, manifest, icons) from the site root so deep
+         share links like /r/<slug> don't request /r/app.js — the Vercel rewrite serves index.html
+         for those, which would otherwise make Babel try to compile HTML and the app never mounts. -->
+    <base href="/">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#10b981">
     <title>RouteWing - วางแผนเส้นทางวิ่ง</title>
