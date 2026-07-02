@@ -854,6 +854,7 @@ function App() {
     const [authUser, setAuthUser] = useState(null);       // Supabase user object once signed in
     const [authLoading, setAuthLoading] = useState(true);
     const [accountModalOpen, setAccountModalOpen] = useState(false);
+    const [welcomeOpen, setWelcomeOpen] = useState(false); // first-visit sign-in upsell popup
     const isAnon = !!(authUser && authUser.is_anonymous);
     const [linkEmail, setLinkEmail] = useState("");
     const [linkEmailSent, setLinkEmailSent] = useState(false);
@@ -1107,6 +1108,18 @@ function App() {
         });
         return () => { cancelled = true; sub.subscription.unsubscribe(); };
     }, []);
+
+    // First-visit sign-in upsell: once the anonymous session is established, show the welcome
+    // popup a single time (remembered via localStorage). Never for signed-in/returning users,
+    // and never when arriving via a share link (#r= or /r/<slug>) so shared routes open cleanly.
+    useEffect(() => {
+        if (authLoading || !isAnon) return;
+        if (localStorage.getItem("routewing.welcomeSeen")) return;
+        if (location.hash.startsWith("#r=")) return;
+        if (/^\/r\/[A-Za-z0-9]+\/?$/.test(location.pathname)) return;
+        setWelcomeOpen(true);
+        try { localStorage.setItem("routewing.welcomeSeen", "1"); } catch {}
+    }, [authLoading, isAnon]);
 
     useEffect(() => {
         const map = mapInstanceRef.current;
@@ -2337,6 +2350,43 @@ function App() {
                         </div>
                         <div className="p-4">
                             <DetailedElevationChart elevations={lapElevations} totalDistanceM={lapDistance} />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* First-visit welcome popup — sign-in upsell (Design A). Always skippable; the app
+                stays fully usable anonymously. Email hands off to the account modal below. */}
+            {welcomeOpen && (
+                <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 p-3"
+                     onClick={() => setWelcomeOpen(false)}>
+                    <div className="w-full max-w-sm bg-white dark:bg-gray-900 rounded-xl shadow-2xl overflow-hidden"
+                         onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end px-3 pt-3">
+                            <button onClick={() => setWelcomeOpen(false)}
+                                className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 active:bg-gray-200">✕</button>
+                        </div>
+                        <div className="px-5 pb-5 pt-1 text-center">
+                            <div className="w-14 h-14 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center text-2xl mx-auto mb-3">🏃</div>
+                            <div className="text-base font-semibold text-gray-800 dark:text-gray-100">{tr("ยินดีต้อนรับสู่ RouteWing", "Welcome to RouteWing")}</div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 mb-4">{tr("เก็บเส้นทางไว้ ซิงก์ได้ทุกเครื่อง", "Keep your routes, synced across devices")}</div>
+                            <div className="text-left text-xs text-gray-600 dark:text-gray-300 space-y-2 mb-5">
+                                <div className="flex items-center gap-2"><span>☁️</span>{tr("ซิงก์ข้ามอุปกรณ์", "Sync across devices")}</div>
+                                <div className="flex items-center gap-2"><span>🔒</span>{tr("กันข้อมูลหาย", "Protect against data loss")}</div>
+                                <div className="flex items-center gap-2"><span>🔗</span>{tr("แชร์เส้นทางถาวร", "Permanent share links")}</div>
+                            </div>
+                            <button onClick={linkGoogle}
+                                className="w-full py-2 mb-2 rounded-lg bg-indigo-600 text-white text-sm font-medium active:bg-indigo-700">
+                                {tr("เข้าสู่ระบบด้วย Google", "Sign in with Google")}
+                            </button>
+                            <button onClick={() => { setWelcomeOpen(false); setAccountModalOpen(true); }}
+                                className="w-full py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100 text-sm font-medium active:bg-gray-200">
+                                {tr("ใช้อีเมล", "Use email")}
+                            </button>
+                            <button onClick={() => setWelcomeOpen(false)}
+                                className="mt-3 text-xs text-gray-400 underline">
+                                {tr("ข้ามไปก่อน", "Skip for now")}
+                            </button>
                         </div>
                     </div>
                 </div>
