@@ -64,14 +64,16 @@ npx serve .
 
 ### Deploy ฟรี
 
-แนะนำ **GitHub Pages**, **Netlify**, หรือ **Vercel** — ลาก folder นี้ขึ้นได้เลย ไม่ต้อง build:
+Deploy อยู่บน **Vercel** (<https://routewing.vercel.app>), ต่อกับ GitHub repo นี้โดยตรง —
+`git push` ขึ้น `main` แล้ว deploy อัตโนมัติ ไม่ต้องรันคำสั่งเอง:
 
 ```bash
-# Vercel CLI
+# ต้องการ deploy manual (เช่นเทสจากเครื่องตัวเองก่อน push) ใช้:
 npx vercel --prod
 ```
 
-หรือ drag-drop ทั้ง folder ที่ <https://app.netlify.com/drop>
+`vercel.json` มี rewrite rule สำหรับ `/r/:slug*` (ใช้โดยฟีเจอร์แชร์ลิงก์ถาวรในอนาคต) ไม่ต้อง build
+step ใดๆ — ไฟล์ทั้งหมด serve ตรงๆ เหมือนเดิม
 
 ## API ที่ใช้ (ฟรีทั้งหมด)
 
@@ -152,9 +154,11 @@ elevator.getElevationAlongPath({ path: coords, samples: 100 }, ...);
 ### 📱 บนมือถือ (แนะนำ — HTTPS, GPS ใช้ได้)
 เปิด URL นี้บนมือถือเลย ไม่ต้องเปิดอะไรในคอม:
 
-**https://pattanan-th.github.io/RunPlanner/**
+**https://routewing.vercel.app/**
 
-อัปเดตอัตโนมัติทุกครั้งที่ `git push` (รอ ~1 นาทีให้ GitHub Pages build)
+อัปเดตอัตโนมัติทุกครั้งที่ `git push` ขึ้น `main` (Vercel auto-deploy, ปกติเสร็จใน ~10-30 วินาที
+พร้อม preview deploy แยกสำหรับ PR/branch อื่น) — ลิงก์ GitHub Pages เดิม
+(pattanan-th.github.io/RunPlanner) ยังใช้งานได้แต่ไม่ใช่ที่หลักอีกต่อไป
 
 ### 💻 บนคอม / LAN dev server
 ดับเบิลคลิก **`dev-server.bat`** ในโฟลเดอร์โปรเจกต์ → จะโชว์ URL ในหน้าต่าง cmd
