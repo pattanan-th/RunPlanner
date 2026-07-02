@@ -72,8 +72,12 @@ Deploy อยู่บน **Vercel** (<https://routewing.vercel.app>), ต่อ
 npx vercel --prod
 ```
 
-`vercel.json` มี rewrite rule สำหรับ `/r/:slug*` (ใช้โดยฟีเจอร์แชร์ลิงก์ถาวรในอนาคต) ไม่ต้อง build
+`vercel.json` มี rewrite rule สำหรับ `/r/:slug*` (ใช้โดยฟีเจอร์แชร์ลิงก์ถาวร `/r/<slug>`) ไม่ต้อง build
 step ใดๆ — ไฟล์ทั้งหมด serve ตรงๆ เหมือนเดิม
+
+> ⚠️ ต้อง deploy ที่ **root domain** เท่านั้น (เช่น Vercel/Netlify) เพราะ `index.html` ใช้ `<base href="/">`
+> เพื่อให้ share link แบบ `/r/<slug>` โหลด asset ได้ถูก — GitHub Pages แบบ subpath (`/RunPlanner/`)
+> จะโหลด asset ไม่เจอ จึงไม่รองรับอีกต่อไป
 
 ## API ที่ใช้ (ฟรีทั้งหมด)
 
