@@ -877,6 +877,38 @@ function App() {
     }, [theme]);
     const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
 
+    // Auth: anonymous session on first load, optional upgrade to email/Google (linkIdentity)
+    // for cross-device sync. `authLoading` covers the brief moment before the session is
+    // ready, mirrored on the same boolean-flag pattern as loadingRoute/loadingElev.
+    const [authUser, setAuthUser] = useState(null);       // Supabase user object once signed in
+    const [authLoading, setAuthLoading] = useState(true);
+    const [accountModalOpen, setAccountModalOpen] = useState(false);
+    const isAnon = !!(authUser && authUser.is_anonymous);
+    const [linkEmail, setLinkEmail] = useState("");
+    const [linkEmailSent, setLinkEmailSent] = useState(false);
+    // Upgrade the anonymous session to a permanent email identity. Supabase sends a
+    // confirmation link to this address; `is_anonymous` flips to false once the user clicks
+    // it — until then the account modal still shows "anonymous" (expected, not instant).
+    const sendEmailLink = async () => {
+        if (!linkEmail || !linkEmail.includes("@")) { showToast(tr("กรอกอีเมลให้ถูกต้อง", "Enter a valid email")); return; }
+        const { error } = await supabaseClient.auth.updateUser({ email: linkEmail });
+        if (error) { showToast(tr("ส่งลิงก์ไม่สำเร็จ ลองใหม่", "Couldn't send link — try again")); return; }
+        setLinkEmailSent(true);
+        showToast(tr("ส่งลิงก์ยืนยันไปที่อีเมลแล้ว เช็คกล่องจดหมาย", "Confirmation link sent — check your inbox"));
+    };
+    // OAuth linking (redirects to Google, comes back with the anon session upgraded).
+    const linkGoogle = async () => {
+        const { error } = await supabaseClient.auth.linkIdentity({ provider: "google" });
+        if (error) showToast(tr("เชื่อมต่อ Google ไม่สำเร็จ", "Google link failed"));
+    };
+    const signOutAccount = async () => {
+        await supabaseClient.auth.signOut();
+        setAccountModalOpen(false);
+        const { data } = await supabaseClient.auth.signInAnonymously();
+        setAuthUser(data.user);
+        showToast(tr("ออกจากระบบแล้ว", "Signed out"));
+    };
+
     const [routeProfile, setRouteProfile] = useState(() => {
         try { return localStorage.getItem("runplanner.profile") === "driving" ? "driving" : "foot"; } catch { return "foot"; }
     });
@@ -925,13 +957,44 @@ function App() {
     const [laps, setLaps] = useState(1);                       // run the drawn loop N times (cumulative distance/elevation)
     const [elevModalOpen, setElevModalOpen] = useState(false); // full-screen detailed elevation graph
     const [compareOpen, setCompareOpen] = useState(false);     // route-comparison modal
-    const [savedRoutes, setSavedRoutes] = useState(() => {
-        try { return JSON.parse(localStorage.getItem("routewing.compareRoutes") || "[]"); } catch { return []; }
+    // Saved routes for comparison — sourced from Supabase (`routes` table) once auth is ready,
+    // replacing the old localStorage-only `routewing.compareRoutes`. Row shape from the DB
+    // (`distance_m`, snake_case) is mapped to the app's existing camelCase shape at this
+    // boundary so the compare-modal UI below needs no changes at all.
+    const [savedRoutes, setSavedRoutes] = useState([]);
+    const dbRowToSaved = (row) => ({
+        id: row.id, name: row.name, distanceM: row.distance_m,
+        elevations: row.elevations, waypoints: row.waypoints, laps: row.laps,
     });
-    const persistSaved = (list) => {
-        setSavedRoutes(list);
-        try { localStorage.setItem("routewing.compareRoutes", JSON.stringify(list)); } catch {}
+    const refetchSavedRoutes = async () => {
+        const { data, error } = await supabaseClient.from("routes").select("*").order("created_at");
+        if (error) { showToast(tr("โหลดเส้นทางที่บันทึกไว้ไม่สำเร็จ", "Couldn't load saved routes")); return; }
+        setSavedRoutes(data.map(dbRowToSaved));
     };
+    // One-time migration: push any pre-existing localStorage routes into Supabase, exactly
+    // once per browser (guarded by a flag), then load the (now-authoritative) saved routes.
+    useEffect(() => {
+        if (!authUser) return;
+        let cancelled = false;
+        (async () => {
+            if (!localStorage.getItem("routewing.migratedToBackend")) {
+                let legacy = [];
+                try { legacy = JSON.parse(localStorage.getItem("routewing.compareRoutes") || "[]"); } catch {}
+                if (Array.isArray(legacy) && legacy.length > 0) {
+                    const rows = legacy.map(r => ({
+                        user_id: authUser.id, name: r.name, distance_m: r.distanceM,
+                        elevations: r.elevations || [], waypoints: r.waypoints || [], laps: r.laps || 1,
+                    }));
+                    const { error } = await supabaseClient.from("routes").insert(rows);
+                    if (!error) { try { localStorage.setItem("routewing.migratedToBackend", "1"); } catch {} }
+                } else {
+                    try { localStorage.setItem("routewing.migratedToBackend", "1"); } catch {}
+                }
+            }
+            if (!cancelled) await refetchSavedRoutes();
+        })();
+        return () => { cancelled = true; };
+    }, [authUser]);
     const [hiddenCompare, setHiddenCompare] = useState([]); // route ids hidden from the comparison chart
     const toggleCompareVisible = (id) =>
         setHiddenCompare(h => (h.includes(id) ? h.filter(x => x !== id) : [...h, id]));
@@ -1015,6 +1078,31 @@ function App() {
                 navigator.geolocation.clearWatch(passiveWatchIdRef.current);
             }
         };
+    }, []);
+
+    // Auth bootstrap: reuse an existing Supabase session, or create an anonymous one —
+    // zero visible signup step, matching the app's previous no-login UX. `onAuthStateChange`
+    // keeps `authUser` in sync across sign-in/link-identity/sign-out from anywhere in the app.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (cancelled) return;
+            if (session) {
+                setAuthUser(session.user);
+                setAuthLoading(false);
+            } else {
+                const { data, error } = await supabaseClient.auth.signInAnonymously();
+                if (cancelled) return;
+                if (error) { showToast(tr("เข้าสู่ระบบไม่สำเร็จ ลองรีเฟรชหน้า", "Sign-in failed — try refreshing")); }
+                else setAuthUser(data.user);
+                setAuthLoading(false);
+            }
+        })();
+        const { data: sub } = supabaseClient.auth.onAuthStateChange((_event, session) => {
+            setAuthUser(session ? session.user : null);
+        });
+        return () => { cancelled = true; sub.subscription.unsubscribe(); };
     }, []);
 
     useEffect(() => {
@@ -1577,18 +1665,21 @@ function App() {
     // Save the current route for side-by-side comparison AND later recall (persisted). Stores the
     // lapped elevation profile for the chart/table plus the base waypoints + lap count so the route
     // can be loaded back onto the map.
-    const saveForCompare = () => {
+    const saveForCompare = async () => {
         if (lapElevations.length < 2 || lapDistance < 1) { showToast(tr("ยังไม่มีข้อมูลความสูง", "No elevation data yet")); return; }
+        if (!authUser) { showToast(tr("ยังไม่พร้อมใช้งาน ลองใหม่อีกครั้ง", "Not ready yet — try again")); return; }
         const lapTag = lapCount > 1 ? ` ×${lapCount}` : "";
-        const entry = {
-            id: Date.now(),
+        const row = {
+            user_id: authUser.id,
             name: `${tr("เส้นทาง", "Route")} ${savedRoutes.length + 1}${lapTag}`,
-            distanceM: lapDistance,
+            distance_m: lapDistance,
             elevations: lapElevations.slice(),
             waypoints: waypoints.map(w => ({ lat: w.lat, lng: w.lng, snap: w.snap })),
             laps: lapCount,
         };
-        persistSaved([...savedRoutes, entry]);
+        const { error } = await supabaseClient.from("routes").insert(row);
+        if (error) { showToast(tr("บันทึกไม่สำเร็จ", "Save failed")); return; }
+        await refetchSavedRoutes();
         showToast(tr("บันทึกเพื่อเทียบแล้ว", "Saved for comparison"));
         setCompareOpen(true);
     };
@@ -1606,8 +1697,16 @@ function App() {
         if (map) { try { map.fitBounds(r.waypoints.map(w => [w.lat, w.lng]), { padding: [40, 40] }); } catch (e) {} }
         showToast(tr("เรียกเส้นทางแล้ว", "Route loaded"));
     };
-    const renameSaved = (id, name) => persistSaved(savedRoutes.map(r => (r.id === id ? { ...r, name } : r)));
-    const deleteSaved = (id) => persistSaved(savedRoutes.filter(r => r.id !== id));
+    const renameSaved = async (id, name) => {
+        setSavedRoutes(prev => prev.map(r => (r.id === id ? { ...r, name } : r))); // optimistic
+        const { error } = await supabaseClient.from("routes").update({ name }).eq("id", id);
+        if (error) { showToast(tr("เปลี่ยนชื่อไม่สำเร็จ", "Rename failed")); await refetchSavedRoutes(); }
+    };
+    const deleteSaved = async (id) => {
+        setSavedRoutes(prev => prev.filter(r => r.id !== id)); // optimistic
+        const { error } = await supabaseClient.from("routes").delete().eq("id", id);
+        if (error) { showToast(tr("ลบไม่สำเร็จ", "Delete failed")); await refetchSavedRoutes(); }
+    };
     // Import a GPX file: parse its track, downsample to keep the editable marker count sane,
     // and load it as a freehand route (line follows the imported track, every point draggable).
     const importGpx = (file) => {
@@ -1702,7 +1801,14 @@ function App() {
                         <div className="text-2xl">🏃</div>
                         <div className="flex-1 min-w-0">
                             <div className="font-bold text-gray-800 dark:text-gray-100 leading-tight text-sm">RouteWing</div>
-                            <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">{tr("วางแผนเส้นทางวิ่ง", "Plan your running route")}</div>
+                            {/* Persistent auth status label — anonymous (gray) vs signed-in (green) */}
+                            <div className={`text-[10px] leading-tight truncate ${isAnon ? "text-gray-500 dark:text-gray-400" : "text-green-600 dark:text-green-400"}`}>
+                                {authLoading
+                                    ? tr("กำลังเชื่อมต่อ...", "Connecting...")
+                                    : isAnon
+                                    ? tr("ผู้ใช้ทั่วไป · ข้อมูลอยู่ในเครื่องนี้", "Guest · data stays on this device")
+                                    : `${authUser && authUser.email} · ${tr("ซิงก์อยู่", "synced")}`}
+                            </div>
                         </div>
                         {/* Settings & files — moved to the header top-right */}
                         <div className="flex items-center gap-1 flex-shrink-0">
@@ -1742,6 +1848,14 @@ function App() {
                                         <path d="M0 9 L13 24 L0 24 Z" fill="#34A853"/>
                                     </g>
                                     <circle cx="12" cy="9.5" r="3" fill="#fff"/>
+                                </svg>
+                            </button>
+                            <button onClick={() => setAccountModalOpen(true)} title={tr("บัญชีของคุณ", "Your account")}
+                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"
+                                     className="text-gray-700 dark:text-gray-200">
+                                    <circle cx="12" cy="8" r="4"/>
+                                    <path d="M4 20c0-4 3.5-7 8-7s8 3 8 7" strokeLinecap="round"/>
                                 </svg>
                             </button>
                         </div>
@@ -2158,6 +2272,72 @@ function App() {
                         </div>
                         <div className="p-4">
                             <DetailedElevationChart elevations={lapElevations} totalDistanceM={lapDistance} />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Account modal — anonymous (sync upsell) vs signed-in (email + sign out) */}
+            {accountModalOpen && (
+                <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 p-3"
+                     onClick={() => setAccountModalOpen(false)}>
+                    <div className="w-full max-w-sm bg-white dark:bg-gray-900 rounded-xl shadow-2xl overflow-hidden"
+                         onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
+                            <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">👤 {tr("บัญชีของคุณ", "Your account")}</span>
+                            <button onClick={() => setAccountModalOpen(false)}
+                                className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 active:bg-gray-200">✕</button>
+                        </div>
+                        <div className="p-4">
+                            {isAnon ? (
+                                <>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed mb-3">
+                                        {tr("เส้นทางที่บันทึกไว้เก็บอยู่ในเครื่องนี้เท่านั้น เข้าสู่ระบบเพื่อซิงก์ข้ามอุปกรณ์และกันข้อมูลหาย",
+                                            "Saved routes currently live only on this device. Sign in to sync across devices and protect against data loss.")}
+                                    </p>
+                                    {linkEmailSent ? (
+                                        <div className="text-xs text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 rounded-lg p-3 mb-2">
+                                            {tr("เช็คอีเมลของคุณแล้วกดลิงก์ยืนยัน", "Check your email and tap the confirmation link")}
+                                        </div>
+                                    ) : (
+                                        <div className="flex gap-1.5 mb-2">
+                                            <input type="email" value={linkEmail} onChange={(e) => setLinkEmail(e.target.value)}
+                                                placeholder="you@email.com"
+                                                className="flex-1 min-w-0 px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
+                                        </div>
+                                    )}
+                                    {!linkEmailSent && (
+                                        <button onClick={sendEmailLink}
+                                            className="w-full py-2 mb-2 rounded-lg bg-indigo-600 text-white text-sm font-medium active:bg-indigo-700">
+                                            {tr("ส่งลิงก์เข้าสู่ระบบทางอีเมล", "Send email sign-in link")}
+                                        </button>
+                                    )}
+                                    <button onClick={linkGoogle}
+                                        className="w-full py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100 text-sm font-medium active:bg-gray-200">
+                                        {tr("เข้าสู่ระบบด้วย Google", "Sign in with Google")}
+                                    </button>
+                                    <p className="text-[11px] text-gray-400 mt-3">
+                                        {tr("ไม่ต้องตั้งรหัสผ่าน — เส้นทางเดิมจะติดไปกับบัญชีทันที",
+                                            "No password needed — existing routes carry over immediately")}
+                                    </p>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="flex items-center gap-3 mb-4">
+                                        <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-indigo-700 dark:text-indigo-300 font-semibold text-sm">
+                                            {(authUser && authUser.email ? authUser.email[0] : "?").toUpperCase()}
+                                        </div>
+                                        <div className="min-w-0">
+                                            <div className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{authUser && authUser.email}</div>
+                                            <div className="text-xs text-green-600 dark:text-green-400">☁️ {tr("ซิงก์อยู่ · ปลอดภัยข้ามอุปกรณ์", "Synced · safe across devices")}</div>
+                                        </div>
+                                    </div>
+                                    <button onClick={signOutAccount}
+                                        className="w-full py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 text-sm font-medium active:bg-gray-200">
+                                        {tr("ออกจากระบบ", "Sign out")}
+                                    </button>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>

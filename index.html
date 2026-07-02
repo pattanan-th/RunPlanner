@@ -233,13 +233,25 @@
     <!-- Google Maps JS SDK — used for DirectionsService routing (walking/driving) -->
     <script defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBcN-byDSsAtp7pPdPcC8FzkakMzVMKE0k&loading=async"></script>
 
+    <!-- Supabase JS — per-user route storage (anonymous auth). URL + publishable key are
+         meant to be public/client-visible (safety comes from Row-Level Security, not
+         secrecy) — same trust model as the Google Maps key above. -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script>
+        window.supabaseClient = supabase.createClient(
+            "https://otkoaucrfjywkejsnkzl.supabase.co",
+            "sb_publishable_mJBqz29fdG-LPi3btkFBBQ_4J0oUZMp",
+            { auth: { persistSession: true, autoRefreshToken: true } }
+        );
+    </script>
+
     <!-- React 18 + Babel for in-browser JSX (prototype only). Versions PINNED (unpinned
          @babel/standalone "latest" started shipping ESM and broke as a classic script). -->
     <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
     <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js"></script>
 
-    <script type="text/babel" src="app.js?v=98"></script>
+    <script type="text/babel" src="app.js?v=99"></script>
 
     <script>
         // Auto-unregister old service workers and clear caches (dev mode safety)

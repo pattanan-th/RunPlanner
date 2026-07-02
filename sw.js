@@ -1,5 +1,5 @@
 // Service Worker - Cache app shell, but always re-fetch app code in dev
-const CACHE_NAME = "runplanner-v4";
+const CACHE_NAME = "runplanner-v5";
 const APP_SHELL = [
     "./",
     "./index.html",
@@ -28,11 +28,15 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
     const url = new URL(e.request.url);
 
-    // Never cache: map tiles, routing API, elevation API
+    // Never cache: map tiles + live routing/elevation APIs (must always hit the network so
+    // re-tracing the same coords returns fresh results, not a stale cached response).
     if (
         url.hostname.includes("tile.openstreetmap.org") ||
-        url.hostname.includes("router.project-osrm.org") ||
-        url.hostname.includes("api.open-elevation.com")
+        url.hostname.includes("brouter.de") ||          // primary routing (BRouter)
+        url.hostname.includes("api.open-meteo.com") ||  // primary elevation
+        url.hostname.includes("api.open-elevation.com") || // elevation fallback
+        url.hostname.includes("maps.googleapis.com") ||  // Google Directions/Elevation/Maps SDK
+        url.hostname.endsWith(".supabase.co")            // auth/routes REST + future Edge Functions
     ) {
         return;
     }
