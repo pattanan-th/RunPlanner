@@ -168,6 +168,23 @@ function decodeRoute(s) {
         }).filter(p => !isNaN(p.lat) && !isNaN(p.lng));
     } catch (e) { return []; }
 }
+// 8-char slug for permanent /r/<slug> share links (Step 4). Collision odds are tiny; the
+// caller retries against the routes.share_slug UNIQUE constraint if one ever happens.
+function genShareSlug() {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let s = "";
+    for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+    return s;
+}
+// True if two waypoint lists describe the same route (~5-decimal precision + snap flag), used
+// to tell whether the on-map route is still the saved row it was loaded from (→ safe to update
+// that row) or has diverged / is a foreign route (→ must fork into a new owned row when shared).
+function sameWaypoints(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    const r = (n) => Math.round(n * 1e5);
+    return a.every((p, i) =>
+        r(p.lat) === r(b[i].lat) && r(p.lng) === r(b[i].lng) && (p.snap === false) === (b[i].snap === false));
+}
 function escapeXml(s) {
     return String(s).replace(/[<>&'"]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[c]);
 }
@@ -916,9 +933,14 @@ function App() {
     // (`distance_m`, snake_case) is mapped to the app's existing camelCase shape at this
     // boundary so the compare-modal UI below needs no changes at all.
     const [savedRoutes, setSavedRoutes] = useState([]);
+    // Id of the saved (owned) row the on-map route was loaded from / last saved as, or null.
+    // Drives Step 4's share button: only a still-matching owned row may be updated in place;
+    // anything else (edited, foreign, or never-saved) forks into a new owned public row.
+    const [currentSavedId, setCurrentSavedId] = useState(null);
     const dbRowToSaved = (row) => ({
         id: row.id, name: row.name, distanceM: row.distance_m,
         elevations: row.elevations, waypoints: row.waypoints, laps: row.laps,
+        shareSlug: row.share_slug, isPublic: row.is_public,
     });
     const refetchSavedRoutes = async () => {
         const { data, error } = await supabaseClient.from("routes").select("*").order("created_at");
@@ -1017,13 +1039,40 @@ function App() {
             );
         }
 
+        // Legacy share links (#r=<base64 geometry>) — kept working untouched, forever: they embed
+        // the route in the URL and need no server lookup, so they never break on backend changes.
         if (location.hash.startsWith("#r=")) {
             const decoded = decodeRoute(location.hash.slice(3));
             if (decoded.length > 0) {
                 setWaypoints(decoded.map(p => ({ ...p, snap: false })));
                 setSnapToRoads(false);
+                setCurrentSavedId(null); // foreign route → sharing forks into a new owned row
                 showToast(`${tr("โหลดเส้นทางที่แชร์", "Loaded shared route")} (${decoded.length} ${tr("จุด", "pts")})`);
             }
+        }
+
+        // Permanent share links (/r/<slug>) — Step 4. Fetch the public row by slug with an EXPLICIT
+        // column list (never select('*')), so a stranger opening someone's link never receives that
+        // owner's user_id / internal id. RLS's `is_public = true` clause lets the anon role read it
+        // even before the anonymous session is established.
+        const slugMatch = location.pathname.match(/^\/r\/([A-Za-z0-9]+)\/?$/);
+        if (slugMatch) {
+            const slug = slugMatch[1];
+            (async () => {
+                const { data, error } = await supabaseClient.from("routes")
+                    .select("name,distance_m,elevations,waypoints,laps")
+                    .eq("share_slug", slug).eq("is_public", true).maybeSingle();
+                if (error || !data || !Array.isArray(data.waypoints) || data.waypoints.length < 2) {
+                    showToast(tr("ไม่พบเส้นทางที่แชร์ (หรือเป็นส่วนตัว)", "Shared route not found (or private)"));
+                    return;
+                }
+                setLaps(data.laps || 1);
+                setWaypoints(data.waypoints.map(w => ({ lat: w.lat, lng: w.lng, snap: w.snap })));
+                setCurrentSavedId(null); // opened from a public link — not necessarily mine, so sharing forks
+                const map = mapInstanceRef.current;
+                if (map) { try { map.fitBounds(data.waypoints.map(w => [w.lat, w.lng]), { padding: [40, 40] }); } catch (e) {} }
+                showToast(`${tr("โหลดเส้นทางที่แชร์", "Loaded shared route")} (${data.waypoints.length} ${tr("จุด", "pts")})`);
+            })();
         }
 
         return () => {
@@ -1513,6 +1562,7 @@ function App() {
         setElevations([]);
         setLoopStart(null);
         setLaps(1);
+        setCurrentSavedId(null);
         location.hash = "";
         showToast(tr("ล้างเส้นทางแล้ว", "Route cleared"));
     };
@@ -1572,12 +1622,70 @@ function App() {
         setLoopType(newType);
         if (loopMode && loopStart && !generatingLoop) regenerateLoop(newType);
     };
+    // Generate + claim a unique slug on an already-owned row (used when an owned route was saved
+    // before it was ever shared, so it has no slug yet). Retries on the tiny chance of a UNIQUE
+    // collision. Returns the slug, or null if it couldn't be claimed.
+    const claimSlugForOwned = async (id) => {
+        for (let i = 0; i < 4; i++) {
+            const candidate = genShareSlug();
+            const { error } = await supabaseClient.from("routes")
+                .update({ share_slug: candidate, is_public: true }).eq("id", id);
+            if (!error) return candidate;
+            if (error.code !== "23505") return null; // 23505 = unique_violation → regenerate & retry
+        }
+        return null;
+    };
+    // Produce a permanent /r/<slug> link for the current route (Step 4).
+    // - If the on-map route is still a saved row I OWN → reuse/ensure its slug and make it public.
+    // - Otherwise (never saved, edited since load, or opened from someone else's /r/ link) → fork
+    //   into a NEW public row I own. Crucially we never .update() a row we don't own: RLS would
+    //   silently reject it and the button would appear to do nothing.
     const shareRoute = async () => {
         if (waypoints.length < 2) { showToast(tr("ต้องมีอย่างน้อย 2 จุด", "Need at least 2 points")); return; }
-        const coordsToShare = routedCoords.length > 0 ? routedCoords : waypoints;
-        const hash = encodeRoute(coordsToShare);
-        const url = `${location.origin}${location.pathname}#r=${hash}`;
-        location.hash = `r=${hash}`;
+        if (!authUser) { showToast(tr("ยังไม่พร้อมใช้งาน ลองใหม่อีกครั้ง", "Not ready yet — try again")); return; }
+        const wp = waypoints.map(w => ({ lat: w.lat, lng: w.lng, snap: w.snap }));
+        // savedRoutes are all mine (RLS: user_id = auth.uid()), so a hit here is provably owned.
+        const owned = (currentSavedId != null)
+            ? savedRoutes.find(r => r.id === currentSavedId && sameWaypoints(r.waypoints, wp))
+            : null;
+
+        let slug = null;
+        if (owned) {
+            slug = owned.shareSlug;
+            if (!slug) {
+                slug = await claimSlugForOwned(owned.id);
+                if (!slug) { showToast(tr("แชร์ไม่สำเร็จ", "Share failed")); return; }
+            } else if (!owned.isPublic) {
+                const { error } = await supabaseClient.from("routes").update({ is_public: true }).eq("id", owned.id);
+                if (error) { showToast(tr("แชร์ไม่สำเร็จ", "Share failed")); return; }
+            }
+            await refetchSavedRoutes();
+        } else {
+            const base = {
+                user_id: authUser.id,
+                name: defaultRouteName(),
+                distance_m: lapDistance || plannedDistance || 0,
+                elevations: lapElevations.length ? lapElevations.slice() : [],
+                waypoints: wp,
+                laps: lapCount,
+                is_public: true,
+            };
+            let inserted = null;
+            for (let i = 0; i < 4; i++) {
+                const { data, error } = await supabaseClient.from("routes")
+                    .insert({ ...base, share_slug: genShareSlug() }).select("id, share_slug").single();
+                if (!error) { inserted = data; break; }
+                if (error.code !== "23505") { showToast(tr("แชร์ไม่สำเร็จ", "Share failed")); return; }
+                // else slug collision → regenerate & retry
+            }
+            if (!inserted) { showToast(tr("แชร์ไม่สำเร็จ", "Share failed")); return; }
+            slug = inserted.share_slug;
+            setCurrentSavedId(inserted.id);
+            await refetchSavedRoutes();
+        }
+
+        const url = `${location.origin}/r/${slug}`;
+        try { history.replaceState(null, "", `/r/${slug}`); } catch (e) {}
         if (navigator.share) {
             try { await navigator.share({ title: tr("เส้นทางวิ่ง", "Running route"), text: `${tr("เส้นทาง", "Route")} ${fmtDistance(plannedDistance)}`, url }); }
             catch (e) {}
@@ -1631,8 +1739,9 @@ function App() {
             waypoints: waypoints.map(w => ({ lat: w.lat, lng: w.lng, snap: w.snap })),
             laps: lapCount,
         };
-        const { error } = await supabaseClient.from("routes").insert(row);
+        const { data, error } = await supabaseClient.from("routes").insert(row).select("id").single();
         if (error) { showToast(tr("บันทึกไม่สำเร็จ", "Save failed")); return; }
+        if (data) setCurrentSavedId(data.id); // this saved row is now the on-map route's identity
         await refetchSavedRoutes();
         showToast(tr("บันทึกเพื่อเทียบแล้ว", "Saved for comparison"));
         setCompareOpen(true);
@@ -1646,6 +1755,7 @@ function App() {
         generatedRouteRef.current = null;
         setLaps(r.laps || 1);
         setWaypoints(r.waypoints.map(w => ({ ...w })));
+        setCurrentSavedId(r.id); // loaded one of my saved rows → sharing updates it in place
         setCompareOpen(false);
         const map = mapInstanceRef.current;
         if (map) { try { map.fitBounds(r.waypoints.map(w => [w.lat, w.lng]), { padding: [40, 40] }); } catch (e) {} }
@@ -1675,6 +1785,7 @@ function App() {
             generatedRouteRef.current = null;
             setSnapToRoads(false);
             setWaypoints(wp.map(p => ({ ...p, snap: false })));
+            setCurrentSavedId(null); // freshly imported route → sharing forks into a new owned row
             const map = mapInstanceRef.current;
             if (map) map.fitBounds(coords.map(c => [c.lat, c.lng]), { padding: [40, 40] });
             showToast(`${tr("นำเข้า GPX แล้ว", "Imported GPX")} (${wp.length} ${tr("จุด", "pts")})`);
