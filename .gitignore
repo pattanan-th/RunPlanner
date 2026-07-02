@@ -11,3 +11,8 @@ desktop.ini
 
 # logs
 *.log
+
+# deploy / tooling
+.vercel
+.env*
+supabase/.temp/

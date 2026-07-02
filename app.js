@@ -235,47 +235,21 @@ function detectRouteOverlap(coords, closedLoop = true) {
     return false;
 }
 
-/* ============ Routing (Google Maps JS SDK — DirectionsService) ============ */
-// Lazily created singleton. Returns null until the Google Maps SDK has finished loading.
-let _dirService = null;
-function dirService() {
-    if (!_dirService && window.google && google.maps && google.maps.DirectionsService) {
-        _dirService = new google.maps.DirectionsService();
-    }
-    return _dirService;
-}
-// ROUTE_PROFILE "foot" → WALKING (uses footpaths / sois); "driving" → DRIVING (vehicular roads).
-function googleTravelMode() {
-    if (window.google && google.maps) {
-        return ROUTE_PROFILE === "driving" ? google.maps.TravelMode.DRIVING : google.maps.TravelMode.WALKING;
-    }
-    return "WALKING";
-}
-
-// Single multi-waypoint route via DirectionsService. Returns { snappedPoints, allCoords, actual }.
+/* ============ Routing (Supabase Edge Function proxy — Google Directions) ============ */
+// Single multi-waypoint route via the `directions` Edge Function. Returns
+// { snappedPoints, allCoords, actual } — same shape the old direct-SDK call
+// returned, so callers (fetchMixedRoute fallback, loop/one-way generators,
+// snapToRoad) need no changes. Returns null on any failure (network, proxy
+// outage, Google quota) so the BRouter/free-provider fallback chain keeps
+// working exactly like before.
 async function fetchMultiWaypointRoute(waypoints) {
-    const svc = dirService();
-    if (!svc || waypoints.length < 2) return null;
-    const origin = { lat: waypoints[0].lat, lng: waypoints[0].lng };
-    const destination = { lat: waypoints[waypoints.length - 1].lat, lng: waypoints[waypoints.length - 1].lng };
-    const mid = waypoints.slice(1, -1).map(p => ({ location: { lat: p.lat, lng: p.lng }, stopover: true }));
+    if (waypoints.length < 2) return null;
     try {
-        const res = await svc.route({
-            origin, destination, waypoints: mid,
-            travelMode: googleTravelMode(),
-            optimizeWaypoints: false,
+        const { data, error } = await supabaseClient.functions.invoke("directions", {
+            body: { waypoints: waypoints.map(p => ({ lat: p.lat, lng: p.lng })), profile: ROUTE_PROFILE },
         });
-        const route = res.routes && res.routes[0];
-        if (!route) return null;
-        const allCoords = route.overview_path.map(p => ({ lat: p.lat(), lng: p.lng() }));
-        const snappedPoints = [];
-        let actual = 0;
-        route.legs.forEach((leg, i) => {
-            if (i === 0) snappedPoints.push({ lat: leg.start_location.lat(), lng: leg.start_location.lng() });
-            snappedPoints.push({ lat: leg.end_location.lat(), lng: leg.end_location.lng() });
-            actual += leg.distance.value;
-        });
-        return { snappedPoints, allCoords, actual };
+        if (error || !data) return null;
+        return data;
     } catch (e) { return null; }
 }
 
@@ -378,17 +352,12 @@ async function fetchRouteAlternatives(waypoints) {
 }
 
 // Snap a single point to the nearest road by routing it to itself and reading the snapped leg start.
+// Snaps a single freehand point to the nearest road via the same `directions` proxy —
+// origin===destination trick (waypoints=[pt, pt]) mirrors the old client-SDK call.
 async function snapToRoad(pt) {
-    const svc = dirService();
-    if (!svc) return pt;
     try {
-        const res = await svc.route({
-            origin: { lat: pt.lat, lng: pt.lng },
-            destination: { lat: pt.lat, lng: pt.lng },
-            travelMode: googleTravelMode(),
-        });
-        const leg = res.routes && res.routes[0] && res.routes[0].legs[0];
-        if (leg) return { lat: leg.start_location.lat(), lng: leg.start_location.lng() };
+        const data = await fetchMultiWaypointRoute([pt, pt]);
+        if (data && data.snappedPoints && data.snappedPoints[0]) return data.snappedPoints[0];
     } catch (e) {}
     return pt;
 }
@@ -502,33 +471,18 @@ async function generateSmoothOneWay(start, targetMeters, seed, minPoints, maxPoi
     return best;
 }
 
-// Google Elevation (same key/SDK as routing). Lazy singleton — null until the SDK has loaded.
-let _elevService = null;
-function elevService() {
-    if (!_elevService && window.google && google.maps && google.maps.ElevationService) {
-        _elevService = new google.maps.ElevationService();
-    }
-    return _elevService;
-}
-// Returns elevations aligned to `sampled`, or [] if Google isn't ready / Elevation API errors.
-// A timeout is essential: errors like RefererNotAllowedMapError never invoke the callback, so
-// without it the Promise would hang forever and elevation would never fall back to a free provider.
-function fetchElevationGoogle(sampled) {
-    return new Promise((resolve) => {
-        const svc = elevService();
-        if (!svc) return resolve([]);
-        let done = false;
-        const finish = (v) => { if (!done) { done = true; resolve(v); } };
-        const timer = setTimeout(() => finish([]), 4000);
-        svc.getElevationForLocations(
-            { locations: sampled.map(c => ({ lat: c.lat, lng: c.lng })) },
-            (results, status) => {
-                clearTimeout(timer);
-                if (status === "OK" && Array.isArray(results)) finish(results.map(r => r.elevation));
-                else finish([]); // e.g. Elevation API not enabled / over quota → caller falls back
-            }
-        );
-    });
+// Elevation via the `elevation` Edge Function. Returns elevations aligned to `sampled`,
+// or [] on any failure — no timeout workaround needed here (that was only for the
+// client SDK's RefererNotAllowedMapError-never-fires-the-callback quirk; a plain HTTP
+// fetch() rejects/resolves normally on error).
+async function fetchElevationGoogle(sampled) {
+    try {
+        const { data, error } = await supabaseClient.functions.invoke("elevation", {
+            body: { coords: sampled.map(c => ({ lat: c.lat, lng: c.lng })) },
+        });
+        if (error || !Array.isArray(data)) return [];
+        return data;
+    } catch (e) { return []; }
 }
 
 // Elevation lookup. Up to ~100 points per request, so we sample the route down to ~100 coords.
