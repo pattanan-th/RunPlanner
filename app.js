@@ -856,20 +856,6 @@ function App() {
     const [accountModalOpen, setAccountModalOpen] = useState(false);
     const [welcomeOpen, setWelcomeOpen] = useState(false); // first-visit sign-in upsell popup
     const isAnon = !!(authUser && authUser.is_anonymous);
-    const [linkEmail, setLinkEmail] = useState("");
-    const [linkEmailSent, setLinkEmailSent] = useState(false);
-    // Upgrade the anonymous session to a permanent email identity. Supabase sends a
-    // confirmation link to this address; `is_anonymous` flips to false once the user clicks
-    // it — until then the account modal still shows "anonymous" (expected, not instant).
-    const sendEmailLink = async () => {
-        if (!linkEmail || !linkEmail.includes("@")) { showToast(tr("กรอกอีเมลให้ถูกต้อง", "Enter a valid email")); return; }
-        // emailRedirectTo → return to whatever origin the user is actually on (prod Vercel or
-        // localhost dev) instead of the project's default Site URL.
-        const { error } = await supabaseClient.auth.updateUser({ email: linkEmail }, { emailRedirectTo: window.location.origin });
-        if (error) { showToast(tr("ส่งลิงก์ไม่สำเร็จ ลองใหม่", "Couldn't send link — try again")); return; }
-        setLinkEmailSent(true);
-        showToast(tr("ส่งลิงก์ยืนยันไปที่อีเมลแล้ว เช็คกล่องจดหมาย", "Confirmation link sent — check your inbox"));
-    };
     // OAuth linking (redirects to Google, comes back with the anon session upgraded).
     // redirectTo → return to the current origin (prod Vercel or localhost dev) rather than
     // the project's default Site URL, so login doesn't bounce to the wrong host.
@@ -2399,12 +2385,8 @@ function App() {
                                 <div className="flex items-center gap-2"><span>🔗</span>{tr("แชร์เส้นทางถาวร", "Permanent share links")}</div>
                             </div>
                             <button onClick={linkGoogle}
-                                className="w-full py-2 mb-2 rounded-lg bg-indigo-600 text-white text-sm font-medium active:bg-indigo-700">
+                                className="w-full py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium active:bg-indigo-700">
                                 {tr("เข้าสู่ระบบด้วย Google", "Sign in with Google")}
-                            </button>
-                            <button onClick={() => { setWelcomeOpen(false); setAccountModalOpen(true); }}
-                                className="w-full py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100 text-sm font-medium active:bg-gray-200">
-                                {tr("ใช้อีเมล", "Use email")}
                             </button>
                             <button onClick={() => setWelcomeOpen(false)}
                                 className="mt-3 text-xs text-gray-400 underline">
@@ -2433,25 +2415,8 @@ function App() {
                                         {tr("เส้นทางที่บันทึกไว้เก็บอยู่ในเครื่องนี้เท่านั้น เข้าสู่ระบบเพื่อซิงก์ข้ามอุปกรณ์และกันข้อมูลหาย",
                                             "Saved routes currently live only on this device. Sign in to sync across devices and protect against data loss.")}
                                     </p>
-                                    {linkEmailSent ? (
-                                        <div className="text-xs text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 rounded-lg p-3 mb-2">
-                                            {tr("เช็คอีเมลของคุณแล้วกดลิงก์ยืนยัน", "Check your email and tap the confirmation link")}
-                                        </div>
-                                    ) : (
-                                        <div className="flex gap-1.5 mb-2">
-                                            <input type="email" value={linkEmail} onChange={(e) => setLinkEmail(e.target.value)}
-                                                placeholder="you@email.com"
-                                                className="flex-1 min-w-0 px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
-                                        </div>
-                                    )}
-                                    {!linkEmailSent && (
-                                        <button onClick={sendEmailLink}
-                                            className="w-full py-2 mb-2 rounded-lg bg-indigo-600 text-white text-sm font-medium active:bg-indigo-700">
-                                            {tr("ส่งลิงก์เข้าสู่ระบบทางอีเมล", "Send email sign-in link")}
-                                        </button>
-                                    )}
                                     <button onClick={linkGoogle}
-                                        className="w-full py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100 text-sm font-medium active:bg-gray-200">
+                                        className="w-full py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium active:bg-indigo-700">
                                         {tr("เข้าสู่ระบบด้วย Google", "Sign in with Google")}
                                     </button>
                                     <p className="text-[11px] text-gray-400 mt-3">
