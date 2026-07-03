@@ -863,14 +863,18 @@ function App() {
     // it — until then the account modal still shows "anonymous" (expected, not instant).
     const sendEmailLink = async () => {
         if (!linkEmail || !linkEmail.includes("@")) { showToast(tr("กรอกอีเมลให้ถูกต้อง", "Enter a valid email")); return; }
-        const { error } = await supabaseClient.auth.updateUser({ email: linkEmail });
+        // emailRedirectTo → return to whatever origin the user is actually on (prod Vercel or
+        // localhost dev) instead of the project's default Site URL.
+        const { error } = await supabaseClient.auth.updateUser({ email: linkEmail }, { emailRedirectTo: window.location.origin });
         if (error) { showToast(tr("ส่งลิงก์ไม่สำเร็จ ลองใหม่", "Couldn't send link — try again")); return; }
         setLinkEmailSent(true);
         showToast(tr("ส่งลิงก์ยืนยันไปที่อีเมลแล้ว เช็คกล่องจดหมาย", "Confirmation link sent — check your inbox"));
     };
     // OAuth linking (redirects to Google, comes back with the anon session upgraded).
+    // redirectTo → return to the current origin (prod Vercel or localhost dev) rather than
+    // the project's default Site URL, so login doesn't bounce to the wrong host.
     const linkGoogle = async () => {
-        const { error } = await supabaseClient.auth.linkIdentity({ provider: "google" });
+        const { error } = await supabaseClient.auth.linkIdentity({ provider: "google", options: { redirectTo: window.location.origin } });
         if (error) showToast(tr("เชื่อมต่อ Google ไม่สำเร็จ", "Google link failed"));
     };
     const signOutAccount = async () => {
