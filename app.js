@@ -1113,6 +1113,25 @@ function App() {
         return () => { cancelled = true; sub.subscription.unsubscribe(); };
     }, []);
 
+    // Handle OAuth errors bounced back in the URL (Supabase puts them in the query and/or hash).
+    // The important case: linkIdentity() upgrades the current anon session by attaching Google to
+    // it — but if that Google account is already linked to an existing user, it fails with
+    // `identity_already_exists`. A returning user should just sign in to their real account, so
+    // fall back to a plain Google sign-in. Other errors surface as a toast instead of being
+    // silently swallowed (which looked like "login does nothing").
+    useEffect(() => {
+        const raw = location.search.replace(/^\?/, "") + "&" + location.hash.replace(/^#/, "");
+        const errCode = new URLSearchParams(raw).get("error_code");
+        if (!errCode) return;
+        history.replaceState(null, "", location.pathname); // strip error junk so a reload won't re-fire
+        if (errCode === "identity_already_exists") {
+            showToast(tr("บัญชี Google นี้เคยใช้แล้ว กำลังพาเข้าสู่ระบบ…", "That Google account already exists — signing you in…"));
+            supabaseClient.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+        } else {
+            showToast(tr("เข้าสู่ระบบไม่สำเร็จ ลองใหม่อีกครั้ง", "Sign-in failed — try again"));
+        }
+    }, []);
+
     // First-visit sign-in upsell: once the anonymous session is established, show the welcome
     // popup a single time (remembered via localStorage). Never for signed-in/returning users,
     // and never when arriving via a share link (#r= or /r/<slug>) so shared routes open cleanly.
