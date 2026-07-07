@@ -848,7 +848,7 @@ function App() {
     }, [theme]);
     const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
 
-    // Auth: anonymous session on first load, optional upgrade to email/Google (linkIdentity)
+    // Auth: anonymous session on first load, optional upgrade to Google (linkIdentity)
     // for cross-device sync. `authLoading` covers the brief moment before the session is
     // ready, mirrored on the same boolean-flag pattern as loadingRoute/loadingElev.
     const [authUser, setAuthUser] = useState(null);       // Supabase user object once signed in
@@ -2364,8 +2364,8 @@ function App() {
                 </div>
             )}
 
-            {/* First-visit welcome popup — sign-in upsell (Design A). Always skippable; the app
-                stays fully usable anonymously. Email hands off to the account modal below. */}
+            {/* First-visit welcome popup — Google sign-in upsell (Design A). Always skippable;
+                the app stays fully usable anonymously. */}
             {welcomeOpen && (
                 <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 p-3"
                      onClick={() => setWelcomeOpen(false)}>

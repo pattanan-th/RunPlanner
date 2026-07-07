@@ -1,5 +1,5 @@
 // Service Worker - Cache app shell, but always re-fetch app code in dev
-const CACHE_NAME = "runplanner-v5";
+const CACHE_NAME = "runplanner-v6";
 const APP_SHELL = [
     "./",
     "./index.html",
