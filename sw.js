@@ -1,5 +1,5 @@
-// Service Worker - Cache app shell, but always re-fetch app code in dev
-const CACHE_NAME = "runplanner-v6";
+// Service Worker - Cache the app shell; always re-fetch app code and live data
+const CACHE_NAME = "runplanner-v7";
 const APP_SHELL = [
     "./",
     "./index.html",
@@ -32,6 +32,10 @@ self.addEventListener("fetch", (e) => {
     // re-tracing the same coords returns fresh results, not a stale cached response).
     if (
         url.hostname.includes("tile.openstreetmap.org") ||
+        url.hostname.includes("arcgisonline.com") ||        // satellite tiles
+        url.hostname.includes("tile.opentopomap.org") ||    // terrain tiles
+        url.hostname.includes("tile-cyclosm.openstreetmap.fr") || // trail tiles
+        url.hostname.includes("tile.waymarkedtrails.org") || // hiking overlay
         url.hostname.includes("brouter.de") ||          // primary routing (BRouter)
         url.hostname.includes("api.open-meteo.com") ||  // primary elevation
         url.hostname.includes("api.open-elevation.com") || // elevation fallback
@@ -41,7 +45,7 @@ self.addEventListener("fetch", (e) => {
         return;
     }
 
-    // Network-first for app code so updates are picked up immediately during dev
+    // Network-first for app code so deployed updates are picked up immediately
     if (url.pathname.endsWith("app.js") ||
         url.pathname.endsWith("index.html") ||
         url.pathname.endsWith("/")) {

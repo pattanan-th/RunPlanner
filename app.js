@@ -549,8 +549,8 @@ const TILE_LAYERS = {
     terrain:   { url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", opts: { maxZoom: 17, attribution: "&copy; OpenTopoMap" } },
     trail:     { url: "https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png", opts: { maxZoom: 20, attribution: "&copy; CyclOSM" } },
 };
-// Monotone CARTO basemaps for the "standard" layer: Positron (light) / Dark Matter (dark).
-const DARK_TILES = { url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", opts: { maxZoom: 20, attribution: "&copy; CARTO" } };
+// The standard layer uses OSM in both themes; dark mode transforms it with CSS below.
+// Dark mode reuses OSM and transforms it with CSS below; no third-party API key required.
 // Light "standard" = OSM standard. Unlike the minimal CARTO styles (Positron/Voyager) its road
 // lines and labels are genuinely dark, so grayscaling it gives a true monotone map whose lines
 // stay sharp instead of washing out to near-white.
@@ -561,7 +561,7 @@ const ZOOM_MAX = 19;  // ~building level
 const pctToZoom = (p) => ZOOM_MIN + (Math.max(0, Math.min(100, p)) / 100) * (ZOOM_MAX - ZOOM_MIN);
 const zoomToPct = (z) => Math.round(((z - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN)) * 100);
 function baseTileCfg(layer, theme) {
-    if (layer === "standard") return theme === "dark" ? DARK_TILES : LIGHT_TILES;
+    if (layer === "standard") return LIGHT_TILES;
     return TILE_LAYERS[layer] || TILE_LAYERS.standard;
 }
 
@@ -855,7 +855,9 @@ function App() {
     const [authLoading, setAuthLoading] = useState(true);
     const [accountModalOpen, setAccountModalOpen] = useState(false);
     const [welcomeOpen, setWelcomeOpen] = useState(false); // first-visit sign-in upsell popup
-    const isAnon = !!(authUser && authUser.is_anonymous);
+    // Treat a missing session as guest mode too. Anonymous sign-in can fail temporarily
+    // (rate limit/network outage); showing "null · synced" in that state is misleading.
+    const isAnon = !authUser || !!authUser.is_anonymous;
     // OAuth linking (redirects to Google, comes back with the anon session upgraded).
     // redirectTo → return to the current origin (prod Vercel or localhost dev) rather than
     // the project's default Site URL, so login doesn't bounce to the wrong host.
@@ -866,9 +868,11 @@ function App() {
     const signOutAccount = async () => {
         await supabaseClient.auth.signOut();
         setAccountModalOpen(false);
-        const { data } = await supabaseClient.auth.signInAnonymously();
-        setAuthUser(data.user);
-        showToast(tr("ออกจากระบบแล้ว", "Signed out"));
+        const { data, error } = await supabaseClient.auth.signInAnonymously();
+        setAuthUser(error ? null : data.user);
+        showToast(error
+            ? tr("ออกจากระบบแล้ว · ใช้งานแบบผู้ใช้ทั่วไป", "Signed out · continuing as guest")
+            : tr("ออกจากระบบแล้ว", "Signed out"));
     };
 
     const [routeProfile, setRouteProfile] = useState(() => {
@@ -1080,17 +1084,28 @@ function App() {
     useEffect(() => {
         let cancelled = false;
         (async () => {
-            const { data: { session } } = await supabaseClient.auth.getSession();
-            if (cancelled) return;
-            if (session) {
-                setAuthUser(session.user);
-                setAuthLoading(false);
-            } else {
-                const { data, error } = await supabaseClient.auth.signInAnonymously();
+            try {
+                const { data: { session } } = await supabaseClient.auth.getSession();
                 if (cancelled) return;
-                if (error) { showToast(tr("เข้าสู่ระบบไม่สำเร็จ ลองรีเฟรชหน้า", "Sign-in failed — try refreshing")); }
-                else setAuthUser(data.user);
-                setAuthLoading(false);
+                if (session) {
+                    setAuthUser(session.user);
+                } else {
+                    const { data, error } = await supabaseClient.auth.signInAnonymously();
+                    if (cancelled) return;
+                    if (error) {
+                        setAuthUser(null);
+                        showToast(tr("ใช้งานแบบผู้ใช้ทั่วไป · ล็อกอิน Google เพื่อบันทึกข้อมูล", "Guest mode · sign in with Google to save data"));
+                    } else {
+                        setAuthUser(data.user);
+                    }
+                }
+            } catch {
+                if (!cancelled) {
+                    setAuthUser(null);
+                    showToast(tr("เชื่อมต่อบัญชีไม่ได้ · ใช้งานแบบผู้ใช้ทั่วไป", "Account unavailable · continuing as guest"));
+                }
+            } finally {
+                if (!cancelled) setAuthLoading(false);
             }
         })();
         const { data: sub } = supabaseClient.auth.onAuthStateChange((_event, session) => {
@@ -1143,7 +1158,7 @@ function App() {
         if (theme === "dark") {
             if (mapLayer === "satellite") filter = "brightness(1.1)";
             else if (mapLayer === "terrain" || mapLayer === "trail") filter = "invert(1) hue-rotate(180deg) brightness(1.85) contrast(0.9)";
-            else filter = "brightness(2.5)"; // standard = CARTO Dark Matter, +50% brighter so streets are clearly visible
+            else filter = "invert(1) hue-rotate(180deg) brightness(0.78) contrast(1.15)"; // OSM transformed into a readable dark map
         } else if (mapLayer === "standard") {
             filter = "grayscale(1) contrast(1.1) brightness(0.97)"; // OSM → monotone, slightly punchier so dark roads/labels read clearly
         }
