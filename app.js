@@ -303,25 +303,39 @@ async function fetchLegRoute(a, b, profile = "shortest") {
     } catch (e) { return null; }
 }
 
-// Cut-through hybrid: route each leg separately; if a leg fails, or its snapped path detours
-// unreasonably far vs. crow-flies, bridge it with a straight line — a sign the point sits on a
-// private/unrouted lane (e.g. inside a gated estate) that the router won't enter, or a small
-// "closed but passable" gap. The detour tolerance scales with gap size so genuinely winding
-// long legs are kept, while short gaps get the tightest threshold.
+// Cut-through hybrid: route each leg separately. When a successfully routed short leg makes an
+// unreasonable detour, bridge only that small gap. Routing failures are handled separately and
+// never converted to straight lines, while long winding legs always retain their routed geometry.
 function detourLimit(straightM) {
     if (straightM < 250) return 2.0;    // short gap: likely closed-but-passable
     if (straightM < 800) return 2.5;
     if (straightM < 2500) return 3.5;
     return 5;                           // long leg: only bridge truly extreme detours
 }
-// Per-leg routing honoring each waypoint's snap flag. A leg whose destination waypoint is freehand
-// (snap === false) is drawn as a straight line; snap legs are routed via BRouter. With cutThrough,
-// a snap leg that fails or detours unreasonably is bridged straight (see detourLimit). This lets a
-// single route mix snapped and freehand sections — draw on roads, then freehand into a private area.
+// Route a snapped leg through BRouter first, then the server-side Google proxy. A failed snapped
+// leg stays failed — it must never silently turn into a freehand line.
+async function fetchSnapLeg(a, b, profile = "shortest") {
+    const primary = await fetchLegRoute(a, b, profile);
+    if (primary) return primary;
+    const fallback = await fetchMultiWaypointRoute([a, b]);
+    if (!fallback || !Array.isArray(fallback.allCoords) || fallback.allCoords.length < 2) return null;
+    return {
+        coords: fallback.allCoords,
+        dist: Number(fallback.actual) || totalDistance(fallback.allCoords),
+    };
+}
+
+// Per-leg routing honoring each destination waypoint's snap flag. Freehand legs are the only legs
+// normally drawn straight. The optional cut-through helper may bridge a genuinely short gap, but
+// never a long leg and never a routing outage.
 async function fetchMixedRoute(waypoints, profile = "shortest", cutThrough = true) {
     if (waypoints.length < 2) return null;
     const legs = await Promise.all(
-        waypoints.slice(0, -1).map((a, i) => (waypoints[i + 1].snap === false ? Promise.resolve(null) : fetchLegRoute(a, waypoints[i + 1], profile)))
+        waypoints.slice(0, -1).map((a, i) => (
+            waypoints[i + 1].snap === false
+                ? Promise.resolve(null)
+                : fetchSnapLeg(a, waypoints[i + 1], profile)
+        ))
     );
     let allCoords = [{ lat: waypoints[0].lat, lng: waypoints[0].lng }];
     let actual = 0;
@@ -330,8 +344,10 @@ async function fetchMixedRoute(waypoints, profile = "shortest", cutThrough = tru
         const straight = haversine(a, b);
         const leg = legs[i];
         const freehand = b.snap === false;
-        const bridge = freehand || !leg || (cutThrough && leg.dist > straight * detourLimit(straight));
-        if (bridge) {
+        if (!freehand && !leg) return null;
+        const shortCutThrough = !freehand && cutThrough && straight <= 350
+            && leg.dist > straight * detourLimit(straight);
+        if (freehand || shortCutThrough) {
             allCoords.push({ lat: b.lat, lng: b.lng });
             actual += straight;
         } else {
@@ -1304,13 +1320,19 @@ function App() {
         let cancelled = false;
         (async () => {
             setLoadingRoute(true);
-            // Per-leg: snap legs use BRouter (shortest); freehand legs (snap=false) are straight.
-            // "Cut through" bridges over-long detours/closed gaps. Falls back to Google if needed.
-            const result = await fetchMixedRoute(waypoints, "shortest", cutThrough)
-                || await fetchMultiWaypointRoute(waypoints);
+            // Per-leg: snap legs use BRouter then Google; freehand legs (snap=false) are straight.
+            // If every router fails, keep the last valid geometry instead of drawing a fake line.
+            const result = await fetchMixedRoute(waypoints, "shortest", cutThrough);
             if (cancelled) return;
             setLoadingRoute(false);
-            setRoutedCoords(result ? result.allCoords : waypoints);
+            if (result) {
+                setRoutedCoords(result.allCoords);
+            } else {
+                showToast(tr(
+                    "บางช่วงเกาะถนนไม่ได้ ลองเพิ่มจุดใกล้ขึ้นหรือเลือกลากเส้นตรงเฉพาะช่วงนั้น",
+                    "A road-snapped section failed. Add a closer point or use Freehand for that section."
+                ));
+            }
         })();
         return () => { cancelled = true; };
     }, [waypoints, routeProfile, cutThrough]);
