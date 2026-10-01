@@ -862,13 +862,20 @@ function App() {
     // auth is unavailable (or identity linking is disabled), fall back to a normal Google
     // sign-in so the button never becomes a dead end.
     const linkGoogle = async () => {
-        const options = { redirectTo: window.location.origin };
+        const options = { redirectTo: window.location.origin, skipBrowserRedirect: true };
         if (authUser && authUser.is_anonymous) {
-            const { error: linkError } = await supabaseClient.auth.linkIdentity({ provider: "google", options });
-            if (!linkError) return;
+            const { data, error: linkError } = await supabaseClient.auth.linkIdentity({ provider: "google", options });
+            if (!linkError && data && data.url) {
+                window.location.assign(data.url);
+                return;
+            }
         }
-        const { error } = await supabaseClient.auth.signInWithOAuth({ provider: "google", options });
-        if (error) showToast(tr("เข้าสู่ระบบด้วย Google ไม่สำเร็จ", "Google sign-in failed"));
+        const { data, error } = await supabaseClient.auth.signInWithOAuth({ provider: "google", options });
+        if (!error && data && data.url) {
+            window.location.assign(data.url);
+            return;
+        }
+        showToast(tr("เข้าสู่ระบบด้วย Google ไม่สำเร็จ", "Google sign-in failed"));
     };
     const signOutAccount = async () => {
         await supabaseClient.auth.signOut();
