@@ -289,18 +289,31 @@ async function fetchTrailRoute(waypoints, profile = "shortest") {
     } catch (e) { return null; }
 }
 
-// Route a single leg A→B (for the cut-through hybrid). Returns {coords, dist} or null.
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Route a single leg A→B. Retry only transient failures so a short BRouter slowdown does not
+// interrupt rapid drawing, while permanent 4xx responses still fall through immediately.
 async function fetchLegRoute(a, b, profile = "shortest") {
     const lonlats = `${a.lng.toFixed(6)},${a.lat.toFixed(6)}|${b.lng.toFixed(6)},${b.lat.toFixed(6)}`;
-    try {
-        const res = await fetch(`https://brouter.de/brouter?lonlats=${lonlats}&profile=${profile}&alternativeidx=0&format=geojson`);
-        if (!res.ok) return null;
-        const f = (await res.json()).features[0];
-        if (!f || !f.geometry) return null;
-        const coords = f.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
-        const dist = parseFloat(f.properties["track-length"]) || totalDistance(coords);
-        return { coords, dist };
-    } catch (e) { return null; }
+    const url = `https://brouter.de/brouter?lonlats=${lonlats}&profile=${profile}&alternativeidx=0&format=geojson`;
+    for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+            const res = await fetch(url);
+            if (!res.ok) {
+                if ((res.status === 429 || res.status >= 500) && attempt === 0) { await wait(250); continue; }
+                return null;
+            }
+            const f = (await res.json()).features[0];
+            if (!f || !f.geometry) return null;
+            const coords = f.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+            const dist = parseFloat(f.properties["track-length"]) || totalDistance(coords);
+            return { coords, dist };
+        } catch (e) {
+            if (attempt === 0) { await wait(250); continue; }
+            return null;
+        }
+    }
+    return null;
 }
 
 // Cut-through hybrid: route each leg separately. When a successfully routed short leg makes an
@@ -312,17 +325,30 @@ function detourLimit(straightM) {
     if (straightM < 2500) return 3.5;
     return 5;                           // long leg: only bridge truly extreme detours
 }
-// Route a snapped leg through BRouter first, then the server-side Google proxy. A failed snapped
-// leg stays failed — it must never silently turn into a freehand line.
+// Cache both completed and in-flight legs. Rapid clicks therefore reuse all earlier road sections
+// instead of re-requesting the full route on every new waypoint.
+const snapLegCache = new Map();
 async function fetchSnapLeg(a, b, profile = "shortest") {
-    const primary = await fetchLegRoute(a, b, profile);
-    if (primary) return primary;
-    const fallback = await fetchMultiWaypointRoute([a, b]);
-    if (!fallback || !Array.isArray(fallback.allCoords) || fallback.allCoords.length < 2) return null;
-    return {
-        coords: fallback.allCoords,
-        dist: Number(fallback.actual) || totalDistance(fallback.allCoords),
-    };
+    const key = `${profile}:${a.lat.toFixed(6)},${a.lng.toFixed(6)}>${b.lat.toFixed(6)},${b.lng.toFixed(6)}`;
+    if (snapLegCache.has(key)) return await snapLegCache.get(key);
+    const request = (async () => {
+        const primary = await fetchLegRoute(a, b, profile);
+        if (primary) return primary;
+        const fallback = await fetchMultiWaypointRoute([a, b]);
+        if (!fallback || !Array.isArray(fallback.allCoords) || fallback.allCoords.length < 2) return null;
+        return {
+            coords: fallback.allCoords,
+            dist: Number(fallback.actual) || totalDistance(fallback.allCoords),
+        };
+    })();
+    snapLegCache.set(key, request);
+    const result = await request;
+    if (!result) {
+        snapLegCache.delete(key);
+    } else if (snapLegCache.size > 500) {
+        snapLegCache.delete(snapLegCache.keys().next().value);
+    }
+    return result;
 }
 
 // Per-leg routing honoring each destination waypoint's snap flag. Freehand legs are the only legs
@@ -1318,6 +1344,7 @@ function App() {
         });
 
         if (waypoints.length < 2) {
+            setLoadingRoute(false);
             setRoutedCoords([]);
             return;
         }
@@ -1326,18 +1353,22 @@ function App() {
         // skips an extra routing round-trip and prevents straight-line fallback on transient failures.
         const wpKey = waypoints.map(w => `${w.lat.toFixed(5)},${w.lng.toFixed(5)}`).join("|");
         if (generatedRouteRef.current && generatedRouteRef.current.key === wpKey) {
+            setLoadingRoute(false);
             setRoutedCoords(generatedRouteRef.current.coords);
             return;
         }
 
         // All-freehand routes need no routing — just straight lines between the points.
         if (waypoints.every(w => w.snap === false)) {
+            setLoadingRoute(false);
             setRoutedCoords(waypoints);
             return;
         }
 
         let cancelled = false;
-        (async () => {
+        // Coalesce rapid map clicks into one routing pass. Combined with the per-leg cache, adding
+        // point N only fetches the new leg instead of firing N overlapping full-route requests.
+        const timer = setTimeout(async () => {
             setLoadingRoute(true);
             // Per-leg: snap legs use BRouter then Google; freehand legs (snap=false) are straight.
             // If every router fails, keep the last valid geometry instead of drawing a fake line.
@@ -1352,8 +1383,8 @@ function App() {
                     "A road-snapped section failed. Add a closer point or use Freehand for that section."
                 ));
             }
-        })();
-        return () => { cancelled = true; };
+        }, 300);
+        return () => { cancelled = true; clearTimeout(timer); };
     }, [waypoints, routeProfile, cutThrough]);
 
     // Draw the route line. Plain green, or — when colorByGrade is on and elevation data exists —
