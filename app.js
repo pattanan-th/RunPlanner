@@ -870,6 +870,7 @@ function App() {
     const [authUser, setAuthUser] = useState(null);       // Supabase user object once signed in
     const [authLoading, setAuthLoading] = useState(true);
     const [accountModalOpen, setAccountModalOpen] = useState(false);
+    const [signingOut, setSigningOut] = useState(false);
     const [welcomeOpen, setWelcomeOpen] = useState(false); // first-visit sign-in upsell popup
     // Treat a missing session as guest mode too. Anonymous sign-in can fail temporarily
     // (rate limit/network outage); showing "null · synced" in that state is misleading.
@@ -894,10 +895,21 @@ function App() {
         showToast(tr("เข้าสู่ระบบด้วย Google ไม่สำเร็จ", "Google sign-in failed"));
     };
     const signOutAccount = async () => {
-        await supabaseClient.auth.signOut();
+        if (signingOut) return;
+        setSigningOut(true);
+        const { error: signOutError } = await supabaseClient.auth.signOut({ scope: "local" });
+        if (signOutError) {
+            setSigningOut(false);
+            showToast(tr("ออกจากระบบไม่สำเร็จ ลองใหม่อีกครั้ง", "Couldn't sign out — try again"));
+            return;
+        }
         setAccountModalOpen(false);
+        setAuthUser(null);
+        setSavedRoutes([]);
+        setCurrentSavedId(null);
         const { data, error } = await supabaseClient.auth.signInAnonymously();
         setAuthUser(error ? null : data.user);
+        setSigningOut(false);
         showToast(error
             ? tr("ออกจากระบบแล้ว · ใช้งานแบบผู้ใช้ทั่วไป", "Signed out · continuing as guest")
             : tr("ออกจากระบบแล้ว", "Signed out"));
@@ -965,14 +977,21 @@ function App() {
         elevations: row.elevations, waypoints: row.waypoints, laps: row.laps,
         shareSlug: row.share_slug, isPublic: row.is_public,
     });
-    const refetchSavedRoutes = async () => {
+    const refetchSavedRoutes = async (expectedUserId = authUser && authUser.id) => {
         const { data, error } = await supabaseClient.from("routes").select("*").order("created_at");
         if (error) { showToast(tr("โหลดเส้นทางที่บันทึกไว้ไม่สำเร็จ", "Couldn't load saved routes")); return; }
+        // A request started by the previous account may finish after logout/login. Verify the
+        // current local session before exposing its result in the UI.
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session || (expectedUserId && session.user.id !== expectedUserId)) return;
         setSavedRoutes(data.map(dbRowToSaved));
     };
     // One-time migration: push any pre-existing localStorage routes into Supabase, exactly
     // once per browser (guarded by a flag), then load the (now-authoritative) saved routes.
     useEffect(() => {
+        // Hide the previous account's route list immediately while the new session loads.
+        setSavedRoutes([]);
+        setCurrentSavedId(null);
         if (!authUser) return;
         let cancelled = false;
         (async () => {
@@ -990,7 +1009,7 @@ function App() {
                     try { localStorage.setItem("routewing.migratedToBackend", "1"); } catch {}
                 }
             }
-            if (!cancelled) await refetchSavedRoutes();
+            if (!cancelled) await refetchSavedRoutes(authUser.id);
         })();
         return () => { cancelled = true; };
     }, [authUser]);
@@ -2484,9 +2503,9 @@ function App() {
                                             <div className="text-xs text-green-600 dark:text-green-400">☁️ {tr("ซิงก์อยู่ · ปลอดภัยข้ามอุปกรณ์", "Synced · safe across devices")}</div>
                                         </div>
                                     </div>
-                                    <button onClick={signOutAccount}
-                                        className="w-full py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 text-sm font-medium active:bg-gray-200">
-                                        {tr("ออกจากระบบ", "Sign out")}
+                                    <button onClick={signOutAccount} disabled={signingOut}
+                                        className="w-full py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 text-sm font-medium active:bg-gray-200 disabled:opacity-50">
+                                        {signingOut ? tr("กำลังออกจากระบบ...", "Signing out...") : tr("ออกจากระบบ", "Sign out")}
                                     </button>
                                 </>
                             )}
