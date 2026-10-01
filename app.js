@@ -858,12 +858,17 @@ function App() {
     // Treat a missing session as guest mode too. Anonymous sign-in can fail temporarily
     // (rate limit/network outage); showing "null · synced" in that state is misleading.
     const isAnon = !authUser || !!authUser.is_anonymous;
-    // OAuth linking (redirects to Google, comes back with the anon session upgraded).
-    // redirectTo → return to the current origin (prod Vercel or localhost dev) rather than
-    // the project's default Site URL, so login doesn't bounce to the wrong host.
+    // Link an anonymous session when possible so local routes keep their owner. If anonymous
+    // auth is unavailable (or identity linking is disabled), fall back to a normal Google
+    // sign-in so the button never becomes a dead end.
     const linkGoogle = async () => {
-        const { error } = await supabaseClient.auth.linkIdentity({ provider: "google", options: { redirectTo: window.location.origin } });
-        if (error) showToast(tr("เชื่อมต่อ Google ไม่สำเร็จ", "Google link failed"));
+        const options = { redirectTo: window.location.origin };
+        if (authUser && authUser.is_anonymous) {
+            const { error: linkError } = await supabaseClient.auth.linkIdentity({ provider: "google", options });
+            if (!linkError) return;
+        }
+        const { error } = await supabaseClient.auth.signInWithOAuth({ provider: "google", options });
+        if (error) showToast(tr("เข้าสู่ระบบด้วย Google ไม่สำเร็จ", "Google sign-in failed"));
     };
     const signOutAccount = async () => {
         await supabaseClient.auth.signOut();
