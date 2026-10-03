@@ -1642,7 +1642,12 @@ function App() {
     };
     const reverseRoute = () => {
         if (waypoints.length < 2) { showToast(tr("ต้องมีอย่างน้อย 2 จุด", "Need at least 2 points")); return; }
-        setWaypoints(prev => prev.slice().reverse());
+        setWaypoints(prev => {
+            const reversed = prev.slice().reverse();
+            // The snap flag describes the leg ending at this point. Transfer each flag
+            // to the new destination so reversing preserves freehand and routed legs.
+            return reversed.map((wp, i) => i === 0 ? wp : { ...wp, snap: prev[prev.length - i].snap });
+        });
         showToast(tr("กลับทิศแล้ว", "Direction reversed"));
     };
     const simplifyRoute = () => {
