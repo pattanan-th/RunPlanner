@@ -1231,7 +1231,7 @@ function App() {
         if (theme === "dark") {
             if (mapLayer === "satellite") filter = "brightness(1.1)";
             else if (mapLayer === "terrain" || mapLayer === "trail") filter = "invert(1) hue-rotate(180deg) brightness(1.85) contrast(0.9)";
-            else filter = "invert(1) hue-rotate(180deg) brightness(0.78) contrast(1.15)"; // OSM transformed into a readable dark map
+            else filter = "grayscale(1) invert(1) brightness(0.72) contrast(1.12) sepia(0.10) hue-rotate(165deg) saturate(0.65)"; // muted charcoal/blue-gray, close to the former Dark Matter look
         } else if (mapLayer === "standard") {
             filter = "grayscale(1) contrast(1.1) brightness(0.97)"; // OSM → monotone, slightly punchier so dark roads/labels read clearly
         }
