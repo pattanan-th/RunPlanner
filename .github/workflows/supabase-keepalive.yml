@@ -1,0 +1,27 @@
+name: Supabase keep-alive
+
+# Free-tier Supabase auto-pauses a project after 7 days with no API activity. This workflow
+# hits a lightweight REST endpoint on a schedule so the project never pauses on its own.
+# The key below is the PUBLIC "publishable" anon key (already shipped in index.html) — safety
+# comes from Row-Level Security, not from keeping it secret, so hardcoding it here is fine.
+#
+# Note: GitHub disables scheduled workflows after ~60 days of NO repo activity. As long as the
+# repo gets the occasional commit this keeps running; if the repo goes fully quiet for 60 days,
+# re-enable it from the Actions tab (or just resume the project once in the Supabase dashboard).
+
+on:
+  schedule:
+    - cron: "17 7 */2 * *"   # every 2 days at 07:17 UTC — well inside the 7-day window
+  workflow_dispatch: {}        # allow manual runs from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://otkoaucrfjywkejsnkzl.supabase.co/rest/v1/routes?select=id&limit=1" \
+            -H "apikey: sb_publishable_mJBqz29fdG-LPi3btkFBBQ_4J0oUZMp")
+          echo "Supabase REST responded: $code"
+          test "$code" = "200"
