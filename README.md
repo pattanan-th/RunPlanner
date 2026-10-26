@@ -64,20 +64,16 @@ npx serve .
 
 ### Deploy ฟรี
 
-Deploy อยู่บน **Vercel** (<https://routewing.vercel.app>), ต่อกับ GitHub repo นี้โดยตรง —
-`git push` ขึ้น `main` แล้ว deploy อัตโนมัติ ไม่ต้องรันคำสั่งเอง:
+หลักอยู่บน **GitHub Pages** (<https://pattanan-th.github.io/RunPlanner/>) — `git push` ขึ้น `main`
+แล้ว Pages build ให้อัตโนมัติ (รอ ~1 นาที) ไม่ต้อง build step ใดๆ ไฟล์ serve ตรงๆ
 
-```bash
-# ต้องการ deploy manual (เช่นเทสจากเครื่องตัวเองก่อน push) ใช้:
-npx vercel --prod
-```
+แอปทำงานแบบ **static-first**: ถ้าต่อ Supabase ไม่ได้ (เช่นโปรเจกต์ free หลับ) จะใช้งานแบบ local
+เต็มรูปแบบ — เก็บเส้นทางใน `localStorage`, แชร์ด้วยลิงก์ `#r=` (ฝัง geometry ใน URL), routing/elevation
+ใช้ของฟรี (BRouter/Open-Meteo) — **ไม่มีหน้าจอพัง**; เมื่อ Supabase กลับมา ซิงก์/ล็อกอินจะทำงานเอง
 
-`vercel.json` มี rewrite rule สำหรับ `/r/:slug*` (ใช้โดยฟีเจอร์แชร์ลิงก์ถาวร `/r/<slug>`) ไม่ต้อง build
-step ใดๆ — ไฟล์ทั้งหมด serve ตรงๆ เหมือนเดิม
-
-> ⚠️ ต้อง deploy ที่ **root domain** เท่านั้น (เช่น Vercel/Netlify) เพราะ `index.html` ใช้ `<base href="/">`
-> เพื่อให้ share link แบบ `/r/<slug>` โหลด asset ได้ถูก — GitHub Pages แบบ subpath (`/RunPlanner/`)
-> จะโหลด asset ไม่เจอ จึงไม่รองรับอีกต่อไป
+> `index.html` ใช้ asset path แบบ relative (ไม่มี `<base>`) จึงรันได้ทั้งบน subpath (GitHub Pages
+> `/RunPlanner/`) และ root domain (Vercel) — deploy เดิมบน Vercel (`vercel.json` + rewrite) ยังอยู่
+> ใช้เป็น mirror ได้ แต่ไม่ใช่ที่หลักแล้ว
 
 ## API ที่ใช้ (ฟรีทั้งหมด)
 
@@ -163,11 +159,10 @@ elevator.getElevationAlongPath({ path: coords, samples: 100 }, ...);
 ### 📱 บนมือถือ (แนะนำ — HTTPS, GPS ใช้ได้)
 เปิด URL นี้บนมือถือเลย ไม่ต้องเปิดอะไรในคอม:
 
-**https://routewing.vercel.app/**
+**https://pattanan-th.github.io/RunPlanner/**
 
-อัปเดตอัตโนมัติทุกครั้งที่ `git push` ขึ้น `main` (Vercel auto-deploy, ปกติเสร็จใน ~10-30 วินาที
-พร้อม preview deploy แยกสำหรับ PR/branch อื่น) — ลิงก์ GitHub Pages เดิม
-(pattanan-th.github.io/RunPlanner) ยังใช้งานได้แต่ไม่ใช่ที่หลักอีกต่อไป
+อัปเดตอัตโนมัติทุกครั้งที่ `git push` ขึ้น `main` (GitHub Pages build ~1 นาที) — mirror บน Vercel
+(routewing.vercel.app) ยังใช้ได้แต่ไม่ใช่ที่หลักแล้ว
 
 ### 💻 บนคอม / LAN dev server
 ดับเบิลคลิก **`dev-server.bat`** ในโฟลเดอร์โปรเจกต์ → จะโชว์ URL ในหน้าต่าง cmd
