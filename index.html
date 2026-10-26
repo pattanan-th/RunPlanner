@@ -2,10 +2,9 @@
 <html lang="th">
 <head>
     <meta charset="UTF-8">
-    <!-- Resolve all relative asset URLs (app.js, manifest, icons) from the site root so deep
-         share links like /r/<slug> don't request /r/app.js — the Vercel rewrite serves index.html
-         for those, which would otherwise make Babel try to compile HTML and the app never mounts. -->
-    <base href="/">
+    <!-- No <base> tag: all asset URLs are relative, so the app works whether served from a
+         domain root (Vercel) or a subpath (GitHub Pages /RunPlanner/). Share links use the
+         #r= hash scheme, which needs no path rewrite. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#10b981">
     <title>RouteWing - วางแผนเส้นทางวิ่ง</title>
@@ -252,7 +251,7 @@
     <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js"></script>
 
-    <script type="text/babel" src="app.js?v=114"></script>
+    <script type="text/babel" src="app.js?v=115"></script>
 
     <script>
         // Register the service worker (offline app-shell + installable PWA). Safe against the
@@ -260,7 +259,7 @@
         // network-first for app.js/index.html (updates picked up immediately) and never
         // caches routing/elevation/Supabase API calls.
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js').catch(() => {});
+            navigator.serviceWorker.register('sw.js').catch(() => {});
         }
     </script>
 </body>

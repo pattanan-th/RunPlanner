@@ -13,6 +13,14 @@ const tr = (th, en) => (CUR_LANG === "en" ? en : th);
 // Routing profile mapped to a Google travel mode: "foot" → WALKING (footpaths / small alleys /
 // sois); "driving" → DRIVING (vehicular roads only). Kept in sync with React state in App's render.
 let ROUTE_PROFILE = "foot";
+// True when the Supabase backend is reachable. Mirrors React state (set in App) so the
+// module-scope routing/elevation helpers can skip the proxy and go straight to the free
+// providers when the project is paused/unreachable. Optimistic default until proven down.
+let BACKEND_ONLINE = true;
+// Public project URL + publishable key (same values as index.html; safe to expose — RLS
+// guards the data). Used for the lightweight reachability probe at startup.
+const SUPABASE_URL = "https://otkoaucrfjywkejsnkzl.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_mJBqz29fdG-LPi3btkFBBQ_4J0oUZMp";
 
 /* ============ Utilities ============ */
 const R_EARTH = 6371000;
@@ -185,6 +193,16 @@ function sameWaypoints(a, b) {
     return a.every((p, i) =>
         r(p.lat) === r(b[i].lat) && r(p.lng) === r(b[i].lng) && (p.snap === false) === (b[i].snap === false));
 }
+// Local (no-backend) route store. Holds the same camelCase shape `dbRowToSaved` produces, so
+// the compare UI and loadSaved() work identically whether routes come from Supabase or here.
+const LOCAL_ROUTES_KEY = "routewing.compareRoutes";
+function readLocalRoutes() {
+    try { const a = JSON.parse(localStorage.getItem(LOCAL_ROUTES_KEY) || "[]"); return Array.isArray(a) ? a : []; }
+    catch { return []; }
+}
+function writeLocalRoutes(rows) {
+    try { localStorage.setItem(LOCAL_ROUTES_KEY, JSON.stringify(rows)); } catch {}
+}
 function escapeXml(s) {
     return String(s).replace(/[<>&'"]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[c]);
 }
@@ -261,6 +279,7 @@ function detectRouteOverlap(coords, closedLoop = true) {
 // working exactly like before.
 async function fetchMultiWaypointRoute(waypoints) {
     if (waypoints.length < 2) return null;
+    if (!BACKEND_ONLINE) return null; // backend paused → let callers fall back to BRouter
     try {
         const { data, error } = await supabaseClient.functions.invoke("directions", {
             body: { waypoints: waypoints.map(p => ({ lat: p.lat, lng: p.lng })), profile: ROUTE_PROFILE },
@@ -535,6 +554,7 @@ async function generateSmoothOneWay(start, targetMeters, seed, minPoints, maxPoi
 // client SDK's RefererNotAllowedMapError-never-fires-the-callback quirk; a plain HTTP
 // fetch() rejects/resolves normally on error).
 async function fetchElevationGoogle(sampled) {
+    if (!BACKEND_ONLINE) return []; // backend paused → let fetchElevation fall back to Open-Meteo
     try {
         const { data, error } = await supabaseClient.functions.invoke("elevation", {
             body: { coords: sampled.map(c => ({ lat: c.lat, lng: c.lng })) },
@@ -895,6 +915,10 @@ function App() {
     // ready, mirrored on the same boolean-flag pattern as loadingRoute/loadingElev.
     const [authUser, setAuthUser] = useState(null);       // Supabase user object once signed in
     const [authLoading, setAuthLoading] = useState(true);
+    // Whether the Supabase backend is reachable. false → the app runs fully static/local:
+    // localStorage storage, #r= sharing, free routing/elevation, no login UI. Set once at
+    // startup by a reachability probe; kept in the module BACKEND_ONLINE for the API helpers.
+    const [backendOnline, setBackendOnline] = useState(true);
     const [accountModalOpen, setAccountModalOpen] = useState(false);
     const [signingOut, setSigningOut] = useState(false);
     const [welcomeOpen, setWelcomeOpen] = useState(false); // first-visit sign-in upsell popup
@@ -1004,6 +1028,7 @@ function App() {
         shareSlug: row.share_slug, isPublic: row.is_public,
     });
     const refetchSavedRoutes = async (expectedUserId = authUser && authUser.id) => {
+        if (!backendOnline) { setSavedRoutes(readLocalRoutes()); return; }
         const { data, error } = await supabaseClient.from("routes").select("*").order("created_at");
         if (error) { showToast(tr("โหลดเส้นทางที่บันทึกไว้ไม่สำเร็จ", "Couldn't load saved routes")); return; }
         // A request started by the previous account may finish after logout/login. Verify the
@@ -1012,33 +1037,35 @@ function App() {
         if (!session || (expectedUserId && session.user.id !== expectedUserId)) return;
         setSavedRoutes(data.map(dbRowToSaved));
     };
-    // One-time migration: push any pre-existing localStorage routes into Supabase, exactly
-    // once per browser (guarded by a flag), then load the (now-authoritative) saved routes.
+    // Route list source, by mode:
+    //  • offline (static) → list from localStorage.
+    //  • online + signed in → merge any locally-saved routes up to the cloud (content-dedup by
+    //    name + waypoints, so re-running never duplicates), then show the cloud set. This also
+    //    covers the original localStorage→cloud migration and rescues routes saved while paused.
     useEffect(() => {
         // Hide the previous account's route list immediately while the new session loads.
         setSavedRoutes([]);
         setCurrentSavedId(null);
-        if (!authUser) return;
         let cancelled = false;
         (async () => {
-            if (!localStorage.getItem("routewing.migratedToBackend")) {
-                let legacy = [];
-                try { legacy = JSON.parse(localStorage.getItem("routewing.compareRoutes") || "[]"); } catch {}
-                if (Array.isArray(legacy) && legacy.length > 0) {
-                    const rows = legacy.map(r => ({
-                        user_id: authUser.id, name: r.name, distance_m: r.distanceM,
-                        elevations: r.elevations || [], waypoints: r.waypoints || [], laps: r.laps || 1,
-                    }));
-                    const { error } = await supabaseClient.from("routes").insert(rows);
-                    if (!error) { try { localStorage.setItem("routewing.migratedToBackend", "1"); } catch {} }
-                } else {
-                    try { localStorage.setItem("routewing.migratedToBackend", "1"); } catch {}
+            if (!backendOnline) { if (!cancelled) setSavedRoutes(readLocalRoutes()); return; }
+            if (!authUser) return; // online but the session isn't ready yet
+            try {
+                const local = readLocalRoutes().filter(l => Array.isArray(l.waypoints) && l.waypoints.length >= 2);
+                if (local.length) {
+                    const { data: cloud } = await supabaseClient.from("routes").select("name,waypoints");
+                    const existing = cloud || [];
+                    const toInsert = local
+                        .filter(l => !existing.some(c => c.name === l.name && sameWaypoints(c.waypoints, l.waypoints)))
+                        .map(l => ({ user_id: authUser.id, name: l.name, distance_m: l.distanceM || 0,
+                            elevations: l.elevations || [], waypoints: l.waypoints, laps: l.laps || 1 }));
+                    if (toInsert.length) await supabaseClient.from("routes").insert(toInsert);
                 }
-            }
+            } catch {}
             if (!cancelled) await refetchSavedRoutes(authUser.id);
         })();
         return () => { cancelled = true; };
-    }, [authUser]);
+    }, [authUser, backendOnline]);
     const [hiddenCompare, setHiddenCompare] = useState([]); // route ids hidden from the comparison chart
     const toggleCompareVisible = (id) =>
         setHiddenCompare(h => (h.includes(id) ? h.filter(x => x !== id) : [...h, id]));
@@ -1151,12 +1178,27 @@ function App() {
         };
     }, []);
 
-    // Auth bootstrap: reuse an existing Supabase session, or create an anonymous one —
-    // zero visible signup step, matching the app's previous no-login UX. `onAuthStateChange`
-    // keeps `authUser` in sync across sign-in/link-identity/sign-out from anywhere in the app.
+    // Backend detection + auth bootstrap. First probe whether Supabase is reachable (a short
+    // timeout so a paused project never hangs startup — note getSession() is local and would
+    // happily return a stale persisted session even while the project is down, so a real
+    // network probe is required). If offline: run fully static (localStorage + #r=), no login.
+    // If online: reuse the session or create an anonymous one, zero visible signup step.
     useEffect(() => {
         let cancelled = false;
         (async () => {
+            let online = false;
+            try {
+                const ctrl = new AbortController();
+                const t = setTimeout(() => ctrl.abort(), 4000);
+                const res = await fetch(`${SUPABASE_URL}/auth/v1/health`, { headers: { apikey: SUPABASE_ANON_KEY }, signal: ctrl.signal });
+                clearTimeout(t);
+                online = res.ok;
+            } catch { online = false; }
+            if (cancelled) return;
+            BACKEND_ONLINE = online;
+            setBackendOnline(online);
+            if (!online) { setAuthLoading(false); return; } // static/local mode — skip auth entirely
+
             try {
                 const { data: { session } } = await supabaseClient.auth.getSession();
                 if (cancelled) return;
@@ -1173,10 +1215,7 @@ function App() {
                     }
                 }
             } catch {
-                if (!cancelled) {
-                    setAuthUser(null);
-                    showToast(tr("เชื่อมต่อบัญชีไม่ได้ · ใช้งานแบบผู้ใช้ทั่วไป", "Account unavailable · continuing as guest"));
-                }
+                if (!cancelled) setAuthUser(null);
             } finally {
                 if (!cancelled) setAuthLoading(false);
             }
@@ -1210,13 +1249,14 @@ function App() {
     // popup a single time (remembered via localStorage). Never for signed-in/returning users,
     // and never when arriving via a share link (#r= or /r/<slug>) so shared routes open cleanly.
     useEffect(() => {
+        if (!backendOnline) return; // no cloud → no login to upsell
         if (authLoading || !isAnon) return;
         if (localStorage.getItem("routewing.welcomeSeen")) return;
         if (location.hash.startsWith("#r=")) return;
         if (/^\/r\/[A-Za-z0-9]+\/?$/.test(location.pathname)) return;
         setWelcomeOpen(true);
         try { localStorage.setItem("routewing.welcomeSeen", "1"); } catch {}
-    }, [authLoading, isAnon]);
+    }, [authLoading, isAnon, backendOnline]);
 
     useEffect(() => {
         const map = mapInstanceRef.current;
@@ -1761,57 +1801,17 @@ function App() {
         }
         return null;
     };
-    // Produce a permanent /r/<slug> link for the current route (Step 4).
-    // - If the on-map route is still a saved row I OWN → reuse/ensure its slug and make it public.
-    // - Otherwise (never saved, edited since load, or opened from someone else's /r/ link) → fork
-    //   into a NEW public row I own. Crucially we never .update() a row we don't own: RLS would
-    //   silently reject it and the button would appear to do nothing.
+    // Share the current route as a #r= hash link — the route geometry is embedded in the URL,
+    // so it works on any static host (incl. GitHub Pages) and with the backend paused, no
+    // server lookup needed. The older /r/<slug> permanent-link path is retired because a
+    // subpath static host can't serve path routes; the slug/DB helpers above stay dormant for
+    // a possible future backend-hosted revival.
     const shareRoute = async () => {
         if (waypoints.length < 2) { showToast(tr("ต้องมีอย่างน้อย 2 จุด", "Need at least 2 points")); return; }
-        if (!authUser) { showToast(tr("ยังไม่พร้อมใช้งาน ลองใหม่อีกครั้ง", "Not ready yet — try again")); return; }
-        const wp = waypoints.map(w => ({ lat: w.lat, lng: w.lng, snap: w.snap }));
-        // savedRoutes are all mine (RLS: user_id = auth.uid()), so a hit here is provably owned.
-        const owned = (currentSavedId != null)
-            ? savedRoutes.find(r => r.id === currentSavedId && sameWaypoints(r.waypoints, wp))
-            : null;
-
-        let slug = null;
-        if (owned) {
-            slug = owned.shareSlug;
-            if (!slug) {
-                slug = await claimSlugForOwned(owned.id);
-                if (!slug) { showToast(tr("แชร์ไม่สำเร็จ", "Share failed")); return; }
-            } else if (!owned.isPublic) {
-                const { error } = await supabaseClient.from("routes").update({ is_public: true }).eq("id", owned.id);
-                if (error) { showToast(tr("แชร์ไม่สำเร็จ", "Share failed")); return; }
-            }
-            await refetchSavedRoutes();
-        } else {
-            const base = {
-                user_id: authUser.id,
-                name: defaultRouteName(),
-                distance_m: lapDistance || plannedDistance || 0,
-                elevations: lapElevations.length ? lapElevations.slice() : [],
-                waypoints: wp,
-                laps: lapCount,
-                is_public: true,
-            };
-            let inserted = null;
-            for (let i = 0; i < 4; i++) {
-                const { data, error } = await supabaseClient.from("routes")
-                    .insert({ ...base, share_slug: genShareSlug() }).select("id, share_slug").single();
-                if (!error) { inserted = data; break; }
-                if (error.code !== "23505") { showToast(tr("แชร์ไม่สำเร็จ", "Share failed")); return; }
-                // else slug collision → regenerate & retry
-            }
-            if (!inserted) { showToast(tr("แชร์ไม่สำเร็จ", "Share failed")); return; }
-            slug = inserted.share_slug;
-            setCurrentSavedId(inserted.id);
-            await refetchSavedRoutes();
-        }
-
-        const url = `${location.origin}/r/${slug}`;
-        try { history.replaceState(null, "", `/r/${slug}`); } catch (e) {}
+        const coordsToShare = routedCoords.length > 0 ? routedCoords : waypoints;
+        const hash = encodeRoute(coordsToShare);
+        const url = `${location.origin}${location.pathname}#r=${hash}`;
+        try { history.replaceState(null, "", `#r=${hash}`); } catch (e) {}
         if (navigator.share) {
             try { await navigator.share({ title: tr("เส้นทางวิ่ง", "Running route"), text: `${tr("เส้นทาง", "Route")} ${fmtDistance(plannedDistance)}`, url }); }
             catch (e) {}
@@ -1855,14 +1855,25 @@ function App() {
     // can be loaded back onto the map.
     const saveForCompare = async () => {
         if (lapElevations.length < 2 || lapDistance < 1) { showToast(tr("ยังไม่มีข้อมูลความสูง", "No elevation data yet")); return; }
-        if (!authUser) { showToast(tr("ยังไม่พร้อมใช้งาน ลองใหม่อีกครั้ง", "Not ready yet — try again")); return; }
         const lapTag = lapCount > 1 ? ` ×${lapCount}` : "";
+        const name = `${tr("เส้นทาง", "Route")} ${savedRoutes.length + 1}${lapTag}`;
+        const wp = waypoints.map(w => ({ lat: w.lat, lng: w.lng, snap: w.snap }));
+        if (!backendOnline) { // static mode → save to localStorage in the camelCase shape
+            const local = { id: crypto.randomUUID(), name, distanceM: lapDistance, elevations: lapElevations.slice(), waypoints: wp, laps: lapCount };
+            writeLocalRoutes([...readLocalRoutes(), local]);
+            setCurrentSavedId(local.id);
+            setSavedRoutes(readLocalRoutes());
+            showToast(tr("บันทึกเพื่อเทียบแล้ว", "Saved for comparison"));
+            setCompareOpen(true);
+            return;
+        }
+        if (!authUser) { showToast(tr("ยังไม่พร้อมใช้งาน ลองใหม่อีกครั้ง", "Not ready yet — try again")); return; }
         const row = {
             user_id: authUser.id,
-            name: `${tr("เส้นทาง", "Route")} ${savedRoutes.length + 1}${lapTag}`,
+            name,
             distance_m: lapDistance,
             elevations: lapElevations.slice(),
-            waypoints: waypoints.map(w => ({ lat: w.lat, lng: w.lng, snap: w.snap })),
+            waypoints: wp,
             laps: lapCount,
         };
         const { data, error } = await supabaseClient.from("routes").insert(row).select("id").single();
@@ -1889,11 +1900,13 @@ function App() {
     };
     const renameSaved = async (id, name) => {
         setSavedRoutes(prev => prev.map(r => (r.id === id ? { ...r, name } : r))); // optimistic
+        if (!backendOnline) { writeLocalRoutes(readLocalRoutes().map(r => (r.id === id ? { ...r, name } : r))); return; }
         const { error } = await supabaseClient.from("routes").update({ name }).eq("id", id);
         if (error) { showToast(tr("เปลี่ยนชื่อไม่สำเร็จ", "Rename failed")); await refetchSavedRoutes(); }
     };
     const deleteSaved = async (id) => {
         setSavedRoutes(prev => prev.filter(r => r.id !== id)); // optimistic
+        if (!backendOnline) { writeLocalRoutes(readLocalRoutes().filter(r => r.id !== id)); return; }
         const { error } = await supabaseClient.from("routes").delete().eq("id", id);
         if (error) { showToast(tr("ลบไม่สำเร็จ", "Delete failed")); await refetchSavedRoutes(); }
     };
@@ -2041,6 +2054,7 @@ function App() {
                                     <circle cx="12" cy="9.5" r="3" fill="#fff"/>
                                 </svg>
                             </button>
+                            {backendOnline && (
                             <button onClick={() => setAccountModalOpen(true)} title={tr("บัญชีของคุณ", "Your account")}
                                 className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
                                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"
@@ -2049,6 +2063,7 @@ function App() {
                                     <path d="M4 20c0-4 3.5-7 8-7s8 3 8 7" strokeLinecap="round"/>
                                 </svg>
                             </button>
+                            )}
                         </div>
                     </div>
                     <div className="flex items-end justify-between gap-3 flex-wrap">
